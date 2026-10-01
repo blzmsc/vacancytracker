@@ -1,0 +1,943 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Vacancy Tracker & Pipeline Directory v86</title>
+
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
+
+<style>
+/* === Base Variables === */
+:root{
+  --bg:#f6f7f9; --panel:#fff; --text:#0f1724; --muted:#6b7280;
+  --primary:#1f6feb; --danger:#ef4444; --success:#10b981;
+  --stat-bg:#f1f6fb;
+  
+  /* Red Row Variables */
+  --stat-bg-red: #fff5f5;
+  --stat-border-red: #fecaca;
+  --stat-text-red: #dc2626;
+
+  --pending-border: #e2a400; /* orange */
+  --new-border: #1f6feb; /* blue */
+  --pending-bg: #fffbf0; 
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  font-family:"Segoe UI", Tahoma, Roboto, Arial, sans-serif;
+  margin:0;background:var(--bg);color:var(--text);padding:18px;
+}
+.container{max-width:1200px;margin:0 auto;background:var(--panel);padding:16px;border-radius:10px;box-shadow:0 10px 30px rgba(15,23,42,0.06);}
+
+/* Title & Navigation Tabs */
+.app-title{text-align:center;font-size:24px;margin:6px 0 14px 0;font-weight:800}
+
+.tab-navigation { display: flex; justify-content: center; gap: 10px; margin-bottom: 20px; border-bottom: 2px solid #eef2f6; padding-bottom: 12px; }
+.tab-btn { background: transparent; color: var(--muted); border: none; padding: 8px 16px; font-size: 15px; font-weight: 700; cursor: pointer; border-radius: 6px; transition: all 0.2s; }
+.tab-btn:hover { background: #f1f5f9; color: var(--text); }
+.tab-btn.active { background: var(--primary); color: #fff; }
+
+.view-panel { display: none; }
+.view-panel.active { display: block; }
+
+/* Row helpers */
+.row {display:flex;align-items:center;gap:12px;flex-wrap:nowrap}
+.row.vstack {flex-direction:column;align-items:stretch}
+
+/* Search row */
+.search-full{flex:1;min-width:360px}
+.search-full input{width:100%;padding:12px;border-radius:8px;border:1px solid #e6edf3;font-size:14px;}
+
+/* Controls row */
+.controls-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:10px}
+.btn{background:var(--primary);color:#fff;padding:8px 12px;border-radius:8px;border:none;cursor:pointer;font-weight:700}
+.btn.secondary{background:#fff;border:1px solid rgba(0,0,0,0.08);color:var(--text);font-weight:700;padding:8px 10px}
+.small-muted{font-size:13px;color:var(--muted)}
+
+/* Stats Rows */
+.stats-row{display:flex;gap:12px;padding:10px 0;align-items:stretch;justify-content:flex-start;overflow-x:auto;white-space:nowrap}
+.stat-box{flex:0 0 140px;min-width:120px;background:var(--stat-bg);padding:14px;border-radius:10px;text-align:center;border:1px solid rgba(0,0,0,0.06);cursor:pointer}
+.stat-box h4{margin:0;font-size:12px;color:var(--muted);font-weight:700}
+.stat-box p{margin:8px 0 0;font-size:18px;color:var(--primary);font-weight:900}
+
+/* Red Stats Row Styles */
+.stat-box.red-theme { background: var(--stat-bg-red); border: 1px solid var(--stat-border-red); }
+.stat-box.red-theme h4 { color: var(--stat-text-red); opacity: 0.8; }
+.stat-box.red-theme p { color: var(--stat-text-red); }
+
+/* Dashboard stack */
+.stack{display:flex;flex-direction:column;gap:14px;margin-top:12px}
+.card{background:var(--panel);border-radius:10px;padding:12px;border:1px solid rgba(0,0,0,0.04);box-shadow:0 6px 18px rgba(3,10,20,0.02)}
+.card h3{margin:0 0 10px 0}
+.list{max-height:380px;overflow:auto;border-radius:8px;border:1px solid #eef2f6;padding:6px;background:#fff}
+
+/* Table styles */
+.table{width:100%;border-collapse:collapse;font-size:13px}
+.table th,.table td{padding:8px 10px;border-bottom:1px solid #eef2f6;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;vertical-align:middle}
+.table th { background: #f8fafc; font-weight: 700; }
+.table th.sortable { cursor: pointer; color: var(--primary); user-select: none; }
+.table th.sortable:hover { background: #f1f5f9; }
+.table a{color:var(--primary);text-decoration:none}
+
+.job-title { font-weight:600; font-size:13px; display:inline-block; max-width:360px; overflow:hidden; text-overflow:ellipsis; vertical-align:middle; }
+.client-cell { cursor:default; }
+.client-name { display:inline-block; max-width:140px; overflow:hidden; text-overflow:ellipsis; vertical-align:middle; }
+
+/* Directory layout specifics */
+.client-row { cursor: pointer; transition: background-color 0.15s; }
+.client-row:hover { background-color: #f1f5f9; } /* Adjusted light mode hover shade */
+.client-row.has-multiple { background-color: #fdfdfd; }
+.dropdown-row { display: none; background-color: #f8fafc; }
+.dropdown-row.show { display: table-row; }
+.nested-wrapper { padding: 12px 18px; border-left: 4px solid var(--primary); background: #f9fafb; }
+.nested-table { width: 100%; border-collapse: collapse; font-size: 12px; background: #fff; border: 1px solid #eef2f6; border-radius: 6px; }
+.nested-table th { background: #f1f5f9; padding: 8px 12px; color: var(--muted); border-bottom: 1px solid #eef2f6; position: static; }
+.nested-table td { padding: 8px 12px; border-bottom: 1px solid #eef2f6; }
+.sort-icon { font-size: 11px; margin-left: 4px; color: #a1a1aa; }
+.table th.active-sort .sort-icon { color: var(--primary); }
+
+/* Status light/pills */
+.status-pill { display: inline-block; padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; }
+.status-pill.active { background: #ecfdf5; color: #065f46; border: 1px solid #a7f3d0; }
+.status-pill.stale { background: #fef2f2; color: #991b1b; border: 1px solid #fca5a5; }
+.source-badge { background: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe; padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: bold; margin-left: 6px; }
+
+/* action pills */
+.action-pill{display:inline-block;padding:4px 8px;border-radius:6px;border:1px solid rgba(0,0,0,0.06);background:transparent;color:var(--text);cursor:pointer;margin-right:6px;font-weight:700;font-size:12px}
+.action-pill.similar{background:#fff}
+.action-pill.delete{background:var(--danger);color:#fff;border:none;padding:4px 7px;font-weight:700}
+
+/* modal style */
+.modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.45);align-items:center;justify-content:center;z-index:9999}
+.modal.show{display:flex}
+.modal-content{width:94%;max-width:900px;background:var(--panel);padding:18px;border-radius:12px;box-shadow:0 20px 50px rgba(8,26,40,0.25);max-height:80vh;overflow:auto;border-top:6px solid var(--primary);position:relative}
+.modal-close{position:absolute;right:12px;top:12px;background:transparent;border:none;font-size:20px;cursor:pointer}
+.modal-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+.modal-title{font-weight:800}
+.modal-body{display:flex;gap:12px}
+.left{flex:0 0 34%}
+.right{flex:1}
+.form-row input, .form-row textarea {width:100%;padding:10px;border-radius:8px;border:1px solid #e6edf3;margin-bottom:8px;font-size:14px}
+.recent-list{max-height:420px;overflow:auto;border-radius:8px;padding:6px;border:1px solid #eef2f6;background:#fff}
+
+/* Modal Modes */
+.modal-content.mode-new{ border: 3px solid var(--new-border); background: var(--panel); }
+.modal-content.mode-pending{ border: 3px solid var(--pending-border); background: var(--pending-bg); }
+
+/* Switch CSS */
+.switch-container { display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 5px; margin-bottom: 15px; }
+.switch { position: relative; display: inline-block; width: 48px; height: 24px; }
+.switch input { opacity: 0; width: 0; height: 0; }
+.slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: var(--primary); transition: .4s; border-radius: 34px; }
+.slider:before { position: absolute; content: ""; height: 16px; width: 16px; left: 4px; bottom: 4px; background-color: white; transition: .4s; border-radius: 50%; }
+input:checked + .slider { background-color: var(--pending-border); }
+input:checked + .slider:before { transform: translateX(24px); }
+.mode-label { font-weight: 700; font-size: 14px; min-width: 80px; text-align: center; }
+
+#mNotes{min-height:80px;resize:vertical}
+.toast{position:fixed;right:18px;bottom:18px;background:var(--primary);color:#fff;padding:10px 14px;border-radius:8px;display:none;z-index:10010}
+
+/* Dark Mode Extensions */
+body.dark{background:#0f1418;color:#e6eef3; --pending-bg: #2d2418; --stat-bg-red: #331515; --stat-border-red: #5c1818; }
+body.dark .container{background:#0f1418;color:#e6eef3}
+body.dark .tab-btn { color: var(--muted); }
+body.dark .tab-btn:hover { background: #21262d; color: #fff; }
+body.dark .tab-navigation { border-bottom-color: #30363d; }
+body.dark .stat-box{background:rgba(255,255,255,0.03)}
+body.dark .stat-box.red-theme{background: var(--stat-bg-red); border-color: var(--stat-border-red); }
+body.dark .search-full input, body.dark .search-box input{background:#111418;color:#e6eef3;border:1px solid #30363d}
+body.dark .btn.secondary{background:#0f1418;border:1px solid rgba(255,255,255,0.06);color:#e6eef3}
+body.dark .modal-content { background: #161b22; color: #e6eef3; }
+body.dark .list, body.dark .card, body.dark .recent-list, body.dark .table-wrapper { background: #161b22; border-color: #30363d; }
+body.dark .table th, body.dark .table td { border-bottom-color: #30363d; }
+body.dark .table th { background: #1f242c; }
+body.dark .table th.sortable:hover { background: #282e38; }
+body.dark .client-row:hover { background-color: #282e38; } /* Adjusted dark mode hover shade */
+body.dark .dropdown-row, body.dark .nested-wrapper { background-color: #111418; }
+body.dark .nested-table { background: #161b22; border-color: #30363d; }
+body.dark .nested-table th { background: #1f242c; border-bottom-color: #30363d; }
+body.dark .nested-table td { border-bottom-color: #30363d; }
+body.dark .form-row input, body.dark .form-row textarea { background: #0d1117; border-color: #30363d; color: #fff; }
+body.dark .action-pill { border-color: #30363d; color: #e6eef3; }
+body.dark .action-pill.similar { background: #21262d; }
+
+.url-link { color: var(--primary); text-decoration: none; font-weight: 600; display: inline-block; max-width: 450px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle; }
+.url-link:hover { text-decoration: underline; }
+.table-wrapper { overflow: auto; max-height: 75vh; border: 1px solid #eef2f6; border-radius: 8px; background: #fff; }
+.search-box input { width: 320px; padding: 10px; border-radius: 6px; border: 1px solid #e6edf3; font-size: 14px; }
+.hidden { display: none !important; }
+
+@media(max-width:980px){
+  .row{flex-direction:column;align-items:stretch}
+  .modal-body{flex-direction:column}
+  .left{flex-basis:auto}
+}
+#expirationRow #cosSaturdayCount { color: #ef4444; }
+#expirationRow .stat-box[data-key="cosSaturday"] { background: rgba(127, 29, 29, 0.35); border: 1px solid rgba(239, 68, 68, 0.5); }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1 class="app-title">Vacancy Tracker</h1>
+
+  <div class="tab-navigation">
+    <button class="tab-btn active" id="tabDashboard">Dashboard</button>
+    <button class="tab-btn" id="tabDirectory">Source & Pipeline Directory</button>
+  </div>
+
+  <div id="panelDashboard" class="view-panel active">
+    <div class="stats-row" id="overviewRow" aria-label="general-stats">
+      <div class="stat-box" data-key="activeJobs"><h4>Active Jobs</h4><p id="activeJobsCount">0</p></div>
+      <div class="stat-box" data-key="pendingVacancies"><h4>Pending Vacancies</h4><p id="pendingJobsCount">0</p></div>
+      <div class="stat-box" data-key="totalJobs"><h4>Total Tracked</h4><p id="totalJobsCount">0</p></div>
+      <div class="stat-box" data-key="jobsPostedToday"><h4>Posted Today</h4><p id="jobsPostedTodayCount">0</p></div>
+      <div class="stat-box" data-key="jobsPostedYesterday"><h4>Posted Yesterday</h4><p id="jobsPostedYesterdayCount">0</p></div>
+      <div class="stat-box" data-key="jobsThisWeek"><h4>Posted This Week</h4><p id="jobsThisWeekCount">0</p></div>
+      <div class="stat-box" data-key="jobsThisMonth"><h4>Posted This Month</h4><p id="jobsPostedMonthCount">0</p></div>
+      <div class="stat-box" data-key="jobsThisYear"><h4>Posted This Year</h4><p id="jobsPostedYearCount">0</p></div>
+    </div> 
+
+    <div class="stats-row" id="expirationRow" aria-label="expiration-stats" style="justify-content: center;">
+      <div class="stat-box red-theme" data-key="expLastWeek"><h4>Expired Last Week</h4><p id="expLastWeekCount">0</p></div>
+      <div class="stat-box red-theme" data-key="expYesterday"><h4>Expired Yesterday</h4><p id="expYesterdayCount">0</p></div>
+      <div class="stat-box red-theme" data-key="expToday"><h4>Expiring Today</h4><p id="expTodayCount">0</p></div>
+      <div class="stat-box red-theme" data-key="expThisWeek"><h4>Expiring This Week</h4><p id="expThisWeekCount">0</p></div>
+      <div class="stat-box" data-key="cosSaturday"><h4 id="cosHeader">COS</h4><p id="cosSaturdayCount">0</p></div>
+    </div>
+
+    <div class="row" style="margin-top:8px;margin-bottom:6px">
+      <div class="search-full"><input id="searchInput" placeholder="Search by Job Title, Client, CLI, Source URL, Notes..." /></div>
+    </div>
+
+    <div class="controls-row" role="toolbar" aria-label="actions">
+      <button id="addJobBtn" class="btn">Add Vacancy</button>
+      <button id="addPendingBtn" class="btn secondary">Add Pending</button>
+      <button onclick="openExportModal()" class="btn secondary">Export</button>
+      <button id="darkBtn" class="btn secondary">🌙</button>
+      <div id="firebaseStatus" class="small-muted" style="margin-left:8px">Checking Firebase...</div>
+    </div>
+
+    <div class="stack" style="margin-top:12px">
+      <div class="card" id="cardActive">
+        <h3>Active Jobs (Most Recent)</h3>
+        <div class="list">
+          <table class="table" aria-describedby="Active Jobs"><thead><tr><th style="width:110px">Date</th><th>Title</th><th style="width:160px">Client (CLI)</th><th style="width:120px">Source</th><th style="width:120px">Expires</th><th style="width:120px">Actions</th></tr></thead>
+          <tbody id="activeBody"></tbody></table>
+        </div>
+        <div style="text-align:right;margin-top:8px"><button id="activeMoreBtn" class="btn secondary">See More</button></div>
+      </div>
+
+      <div class="card" id="cardPending">
+        <h3>Pending Vacancies (Most Recent)</h3>
+        <div class="list">
+          <table class="table"><thead><tr><th style="width:110px">Date</th><th>Title</th><th style="width:160px">Client (CLI)</th><th style="width:120px">Source</th><th style="width:120px">Expires</th><th style="width:120px">Actions</th></tr></thead>
+          <tbody id="pendingBody"></tbody></table>
+        </div>
+        <div style="text-align:right;margin-top:8px"><button id="pendingMoreBtn" class="btn secondary">See More</button></div>
+      </div>
+    </div>
+
+    <div style="margin-top:14px" class="card">
+      <h3>Top 10 Unposted Clients (Based on Oldest Activity)</h3>
+      <div class="list">
+        <table class="table">
+          <thead><tr><th style="width:110px">Last Post</th><th>Title</th><th style="width:160px">Client (CLI)</th><th style="width:120px">Source</th><th style="width:120px">Expires</th><th style="width:120px">Actions</th></tr></thead>
+          <tbody id="oldestClientsBody"></tbody>
+        </table>
+      </div>
+      <div class="small-muted" style="padding-top:8px">Clients who haven't had a job posted in the longest time.</div>
+    </div>
+  </div>
+
+  <div id="panelDirectory" class="view-panel">
+    <div class="card">
+      <div class="row" style="justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap;">
+        <div>
+          <h3>Source Directory & Pipeline Audit</h3>
+          <div id="directoryStatusText" class="small-muted" style="color: green; font-weight: 600;">Data aggregated from active sync.</div>
+        </div>
+        <div class="search-box">
+          <input id="directorySearchInput" placeholder="Filter Pipeline Client Name or CLI..." />
+        </div>
+      </div>
+
+      <div class="table-wrapper">
+        <table class="table">
+          <thead>
+            <tr>
+              <th class="sortable active-sort" id="sortClient" style="width: 280px;">Client (CLI) <span class="sort-icon">▲</span></th>
+              <th>Sources / Pipelines Links</th>
+              <th class="sortable" id="sortVacancies" style="width: 150px; text-align: center;">Total Vacancies <span class="sort-icon">▼</span></th>
+              <th class="sortable" id="sortStatus" style="width: 170px; text-align: center;">Pipeline Status <span class="sort-icon">▼</span></th>
+              <th class="sortable" id="sortDate" style="width: 200px;">Last Job Posted <span class="sort-icon">▼</span></th>
+            </tr>
+          </thead>
+          <tbody id="directoryTableBody">
+            <tr><td colspan="5" style="text-align: center; padding: 40px; color: var(--muted);">Generating channel groups...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="jobsListModal" class="modal" aria-hidden="true">
+  <div class="modal-content" role="dialog" aria-modal="true">
+    <button class="modal-close" id="jobsListClose" title="Close">×</button>
+    <div class="modal-header"><h3 id="jobsListTitle" class="modal-title">Jobs</h3><div id="jobsListMeta" class="small-muted"></div></div>
+    <div style="overflow:auto"><table class="table" id="jobsListTable"><thead><tr><th style="width:110px">Date</th><th>Title</th><th style="width:160px">Client</th><th style="width:120px">Source</th><th style="width:100px">Expires</th><th style="width:120px">Actions</th></tr></thead><tbody id="jobsListBody"></tbody></table></div>
+    <div style="text-align:center;padding-top:10px"><button id="jobsListShowMore" class="btn secondary" style="display:none">Show More</button></div>
+  </div>
+</div>
+
+<div id="jobModal" class="modal" aria-hidden="true">
+  <div class="modal-content mode-new" role="dialog" aria-modal="true" id="modalContent">
+    <button class="modal-close" id="jobModalClose" title="Close">×</button>
+    <div class="modal-header" style="flex-direction:column;align-items:center">
+      <div style="display:flex;justify-content:center;align-items:center;width:100%">
+        <h3 class="modal-title">Add / Edit Job</h3>
+      </div>
+      <div class="switch-container">
+        <span class="mode-label" style="text-align:right">New Job</span>
+        <label class="switch">
+          <input type="checkbox" id="modalModeSwitch">
+          <span class="slider round"></span>
+        </label>
+        <span class="mode-label" style="text-align:left;color:var(--pending-border)">Pending</span>
+      </div>
+    </div>
+
+    <div class="modal-body">
+      <div class="left">
+        <input type="hidden" id="mId" />
+        <div class="form-row"><input id="mTitle" placeholder="Job Title" /></div>
+        <div class="form-row"><input id="mClient" placeholder="Client" list="mClientList" /></div><datalist id="mClientList"></datalist>
+        <div class="form-row"><input id="mCli" placeholder="Client # (CLI)" list="mCliList" /></div><datalist id="mCliList"></datalist>
+        <div class="form-row"><input id="mSource" placeholder="Source URL" list="mSourceList" /></div><datalist id="mSourceList"></datalist>
+        <div class="form-row"><label class="small-muted">Date Posted</label><input id="mDate" type="date" /></div>
+        <div class="form-row"><label class="small-muted">Expiration</label><input id="mExp" type="date" /></div>
+        <div class="form-row"><label class="small-muted">Notes</label><textarea id="mNotes" placeholder="Notes or details..."></textarea></div>
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:8px">
+          <button id="modalCloseBtn" class="btn secondary">Close</button>
+          <button id="modalSaveBtn" class="btn">Save</button>
+        </div>
+      </div>
+      <div class="right">
+        <div style="display:flex;justify-content:space-between;align-items:center"><strong>Recent Jobs for this Client</strong><div class="small-muted">Newest first</div></div>
+        <div class="recent-list" id="modalRecent"><div class="small-muted" style="padding:8px">Enter client name or CLI to see recent jobs</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="exportModal" class="modal hidden">
+  <div class="modal-content" style="max-width:400px">
+    <h3>Copy Jobs to Clipboard</h3>
+    <div style="display:flex;flex-direction:column;gap:10px;margin-top:10px">
+        <select id="exportRange" style="padding:10px;border-radius:6px;border:1px solid #ccc">
+          <option value="yesterday">Yesterday</option>
+          <option value="today">Today</option>
+          <option value="week">This Week</option>
+          <option value="custom">Custom Range</option>
+        </select>
+        <div id="customDates" style="display:none;margin-top:5px">
+          <div style="display:flex;gap:5px;flex-direction:column">
+            <label class="small-muted">Start Date:</label>
+            <input type="date" id="exportStart" style="padding:8px;border-radius:6px;border:1px solid #ccc">
+            <label class="small-muted">End Date:</label>
+            <input type="date" id="exportEnd" style="padding:8px;border-radius:6px;border:1px solid #ccc">
+          </div>
+        </div>
+        <div style="display:flex;gap:10px;margin-top:10px;justify-content:flex-end">
+            <button onclick="closeExportModal()" class="btn secondary">Close</button>
+            <button onclick="runClipboardExport()" class="btn">Copy</button>
+        </div>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+<script>
+/* ===================== Firebase Config ===================== */
+const firebaseConfig = {
+  apiKey: "AIzaSyD0nR-pVtGUT1FubOErjxofkj35OaJ1SiY",
+  authDomain: "vacancy-tracker-ed178.firebaseapp.com",
+  projectId: "vacancy-tracker-ed178",
+  storageBucket: "vacancy-tracker-ed178.appspot.com",
+  messagingSenderId: "660427846567",
+  appId: "1:660427846567:web:d6c4ded047ad1c3329bc82"
+};
+
+/* ===================== Global Parameters ===================== */
+const $ = s => document.querySelector(s);
+const $$ = s => Array.from(document.querySelectorAll(s));
+function showToast(msg, err=false){ const t=$('#toast'); t.style.background = err? 'var(--danger)' : 'var(--primary)'; t.textContent = msg; t.style.display = 'block'; setTimeout(()=>t.style.display='none', 3000); }
+
+let db=null, jobsCol=null, pendingCol=null, cache = []; 
+let currentList = []; 
+let activeLimit=10, pendingLimit=10;
+let modalMode = 'new'; 
+
+/* Directory Engine Sorting Configurations */
+let clientGroupedDirectory = [];
+let filteredDirectory = [];
+let sortDirections = { client: 'asc', vacancies: 'desc', status: 'desc', lastPosted: 'desc' };
+let currentSortColumn = 'client';
+
+/* Date Parsing Helpers */
+function isoDate(d){ 
+  if(!d) return ''; 
+  if(typeof d === 'string' && d.match(/^\d{4}-\d{2}-\d{2}$/)) return d;
+  try {
+    const date = new Date(d);
+    if(isNaN(date.getTime())) return '';
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  } catch(e){ return ''; }
+}
+
+function fmt(d){ 
+  if(!d) return ''; 
+  try{ 
+    const val = (typeof d==='string' && d.length===10) ? d+'T00:00:00' : d;
+    return new Date(val).toLocaleDateString(undefined, {year:'numeric',month:'short',day:'numeric'}); 
+  }catch(e){ return d; } 
+}
+
+function todayStart(){ const t=new Date(); t.setHours(0,0,0,0); return t; }
+function escapeHtml(s){ if(s==null) return ''; return (''+s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function isActiveJob(job){
+  if(!job) return false;
+  if(!job.expiration || job.expiration==='') return true;
+  try{ const exp = new Date(job.expiration + 'T23:59:59'); return exp.getTime() >= todayStart().getTime(); }catch(e){ return true; }
+}
+
+function getWeekRange(date){
+  const d = new Date(date);
+  const day = d.getDay();
+  const start = new Date(d); start.setDate(d.getDate() - day); start.setHours(0,0,0,0);
+  const end = new Date(start); end.setDate(start.getDate() + 6); end.setHours(23,59,59,999);
+  return {start, end};
+}
+
+function getUpcomingSaturday(){
+  const now = new Date();
+  const diff = (6 - now.getDay() + 7) % 7;
+  const sat = new Date(now); sat.setDate(now.getDate() + diff); sat.setHours(23,59,59,999);
+  return sat;
+}
+
+/* ===================== Core System Initialization ===================== */
+async function startFirebaseSafe(){
+  try{
+    if(!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+    try{ const tmp = firebase.firestore(); await tmp.enablePersistence({synchronizeTabs:true}); db=firebase.firestore(); }catch(e){ db=firebase.firestore(); }
+    jobsCol = db.collection('jobs');
+    pendingCol = db.collection('pendingJobs');
+    
+    jobsCol.onSnapshot(()=>{ $('#firebaseStatus').textContent = 'Connected — Live Sync: ' + (new Date()).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}); $('#firebaseStatus').style.color='green'; loadCache().catch(()=>{}); }, ()=>{ $('#firebaseStatus').textContent='Offline'; $('#firebaseStatus').style.color='red'; });
+    pendingCol.onSnapshot(()=>{ loadCache().catch(()=>{}); }, ()=>{});
+  }catch(err){ $('#firebaseStatus').textContent='Offline'; $('#firebaseStatus').style.color='red'; }
+}
+
+async function loadCache(){
+  try{
+    const [jsnap, psnap] = await Promise.all([jobsCol.get(), pendingCol.get()]);
+    const jobs = jsnap.docs.map(d=> ({ id:d.id, _pending:false, ...d.data() }) );
+    const pend = psnap.docs.map(d=> ({ id:d.id, _pending:true, ...d.data() }) );
+    let all = jobs.concat(pend);
+
+    all.forEach(i=>{
+      if(i.datePosted) i.datePosted = isoDate(i.datePosted);
+      else if(i.createdAt) i.datePosted = isoDate(i.createdAt);
+      else i.datePosted = isoDate(new Date());
+
+      i.expiration = isoDate(i.expiration || i.expirationDate || i.expiry || i.expires);
+      
+      if(i.createdAt && i.createdAt.toDate) i._sortTime = i.createdAt.toDate().getTime();
+      else if(i.createdAt) i._sortTime = new Date(i.createdAt).getTime();
+      else i._sortTime = new Date(i.datePosted).getTime();
+      
+      if(!i.title) i.title = i.jobTitle || i.vacancyTitle || '';
+    });
+
+    all.sort((a,b)=> {
+       const dateA = new Date(a.datePosted).getTime();
+       const dateB = new Date(b.datePosted).getTime();
+       if(dateA !== dateB) return dateB - dateA; 
+       return b._sortTime - a._sortTime; 
+    });
+
+    cache = all;
+    triggerSearch();
+  }catch(e){ console.error(e); showToast('Load failed', true); }
+}
+
+function triggerSearch(){
+  const q=($('#searchInput').value||'').trim().toLowerCase();
+  if(!q){ currentList = cache; } else {
+    currentList = cache.filter(j=>{
+      return [ j.title||'', j.client||'', j.clientNumber||'', j.source||'', j.notes||'' ].join(' ').toLowerCase().includes(q);
+    });
+  }
+  renderAll();
+  processDirectoryData(); // Pipeline Engine updates synchronously
+}
+
+function renderAll(){
+  populateOverview(currentList);
+  renderActive(activeLimit, currentList);
+  renderPending(pendingLimit, currentList);
+  renderStaleClients(currentList);
+  populateModalSuggestions();
+  if(jobModal.classList.contains('show')) renderModalRecent();
+}
+
+/* ===================== Component Layout Builders ===================== */
+function populateOverview(sourceList){
+  const now = new Date();
+  const {start: thisWeekStart, end: thisWeekEnd} = getWeekRange(now);
+  const lwDate = new Date(now); lwDate.setDate(now.getDate() - 7);
+  const {start: lastWeekStart, end: lastWeekEnd} = getWeekRange(lwDate);
+  const yStr = isoDate(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1));
+  const tStr = isoDate(now);
+
+  $('#activeJobsCount').textContent = sourceList.filter(j=> isActiveJob(j)).length;
+  $('#pendingJobsCount').textContent = sourceList.filter(j=> j._pending).length;
+  $('#totalJobsCount').textContent = sourceList.length;
+  $('#jobsPostedTodayCount').textContent = sourceList.filter(j=> j.datePosted === tStr).length;
+  $('#jobsPostedYesterdayCount').textContent = sourceList.filter(j=> j.datePosted === yStr).length;
+  $('#jobsThisWeekCount').textContent = sourceList.filter(j=> { const d=new Date(j.datePosted||0); return d>=thisWeekStart && d<=thisWeekEnd; }).length;
+  $('#jobsPostedMonthCount').textContent = sourceList.filter(j=> { const d=new Date(j.datePosted||0); return d.getMonth()===now.getMonth() && d.getFullYear()===now.getFullYear(); }).length;
+  $('#jobsPostedYearCount').textContent = sourceList.filter(j=> { const d=new Date(j.datePosted||0); return d.getFullYear()===now.getFullYear(); }).length;
+
+  const upcomingSaturday = getUpcomingSaturday();
+  $('#cosSaturdayCount').textContent = sourceList.filter(j=> !j._pending && isActiveJob(j) && (!j.expiration || new Date(j.expiration + 'T23:59:59') >= upcomingSaturday)).length;
+  $('#cosHeader').textContent = `COS (${upcomingSaturday.toLocaleDateString(undefined,{month:'short',day:'numeric'})})`;
+
+  $('#expLastWeekCount').textContent = sourceList.filter(j=> j.expiration && new Date(j.expiration + 'T00:00:00') >= lastWeekStart && new Date(j.expiration + 'T00:00:00') <= lastWeekEnd).length;
+  $('#expYesterdayCount').textContent = sourceList.filter(j=> j.expiration === yStr).length;
+  $('#expTodayCount').textContent = sourceList.filter(j=> j.expiration === tStr).length;
+  $('#expThisWeekCount').textContent = sourceList.filter(j=> j.expiration && new Date(j.expiration + 'T00:00:00') >= thisWeekStart && new Date(j.expiration + 'T00:00:00') <= thisWeekEnd).length;
+}
+
+function createRow(j){
+  const displayTitle = escapeHtml(j.title || 'Untitled Job');
+  const cliHtml = `<span class="client-name" title="${j.clientNumber? 'CLI: '+escapeHtml(j.clientNumber):''}">${escapeHtml(j.client||'')}</span>`;
+  const linkHtml = j.source? `<a href="${escapeHtml(j.source)}" target="_blank">Link</a>` : '';
+  const actionsHtml = `<button class="action-pill" data-edit="${j.id}">Edit</button><button class="action-pill similar" data-similar="${j.id}">Similar</button><button class="action-pill delete" data-delete="${j.id}">X</button>`;
+  const tr=document.createElement('tr');
+  tr.innerHTML = `<td>${fmt(j.datePosted)}</td><td><span class="job-title">${displayTitle}</span></td><td class="client-cell">${cliHtml}</td><td>${linkHtml}</td><td>${fmt(j.expiration)}</td><td>${actionsHtml}</td>`;
+  return tr;
+}
+
+function renderActive(limit, list){ activeBody.innerHTML=''; list.filter(j=> isActiveJob(j)).slice(0,limit).forEach(j=> activeBody.appendChild(createRow(j))); }
+function renderPending(limit, list){ pendingBody.innerHTML=''; list.filter(j=> j._pending).slice(0,limit).forEach(j=> pendingBody.appendChild(createRow(j))); }
+
+function renderSubRows(index, p){
+  $('#drop-dir-'+index)?.classList.toggle('show');
+}
+
+function renderStaleClients(sourceList){
+  oldestClientsBody.innerHTML='';
+  const clientMap = {};
+  sourceList.forEach(j=>{
+     if(!j.client) return;
+     const t = new Date(j.datePosted).getTime();
+     if(!clientMap[j.client] || t > clientMap[j.client].time) clientMap[j.client] = { time: t, job: j };
+  });
+  Object.values(clientMap).sort((a,b) => a.time - b.time).slice(0,10).forEach(item => {
+     const j = item.job;
+     const tr = document.createElement('tr');
+     tr.innerHTML = `<td>${fmt(j.datePosted)}</td><td style="font-weight:700">${escapeHtml(j.title)}</td><td><span class="client-name">${escapeHtml(j.client)}</span></td><td>${j.source?`<a href="${escapeHtml(j.source)}" target="_blank">Link</a>`:''}</td><td>${j.expiration?fmt(j.expiration):'-'}</td><td><button class="action-pill" data-edit="${j.id}">Edit</button><button class="action-pill similar" data-similar="${j.id}">Similar</button><button class="action-pill delete" data-delete="${j.id}">X</button></td>`;
+     oldestClientsBody.appendChild(tr);
+  });
+}
+
+/* ===================== Navigation Tabs Logic ===================== */
+$('#tabDashboard').addEventListener('click', () => switchTab('Dashboard'));
+$('#tabDirectory').addEventListener('click', () => switchTab('Directory'));
+
+function switchTab(target) {
+  if(target === 'Dashboard') {
+    $('#tabDashboard').classList.add('active'); $('#tabDirectory').classList.remove('active');
+    $('#panelDashboard').classList.add('active'); $('#panelDirectory').classList.remove('active');
+  } else {
+    $('#tabDirectory').classList.add('active'); $('#tabDashboard').classList.remove('active');
+    $('#panelDirectory').classList.add('active'); $('#panelDashboard').classList.remove('active');
+    processDirectoryData();
+  }
+}
+
+/* ===================== DIRECTORY PROCESSING & ENGINE ===================== */
+function processDirectoryData() {
+  const clientsMap = {};
+
+  cache.forEach(job => {
+    const clientName = (job.client || 'Unknown Client').trim();
+    const cliNum = job.clientNumber || job.cli || job.clientNum || '';
+    const sourceUrl = (job.source || '').trim();
+    if (!sourceUrl) return;
+
+    const postDate = job.datePosted;
+    const itemIsActive = isActiveJob(job);
+
+    if (!clientsMap[clientName]) {
+      clientsMap[clientName] = { client: clientName, cli: cliNum, totalVacancies: 0, maxLastPostedDate: postDate, hasAnyActivePipeline: false, sources: {} };
+    }
+
+    const cGroup = clientsMap[clientName];
+    if (cliNum && !cGroup.cli) cGroup.cli = cliNum;
+
+    if (!cGroup.sources[sourceUrl]) {
+      cGroup.sources[sourceUrl] = { url: sourceUrl, count: 0, lastPostedDate: postDate, isActive: false };
+    }
+
+    const sData = cGroup.sources[sourceUrl];
+    sData.count++;
+    cGroup.totalVacancies++;
+
+    if (postDate && (!sData.lastPostedDate || postDate > sData.lastPostedDate)) sData.lastPostedDate = postDate;
+    if (postDate && (!cGroup.maxLastPostedDate || postDate > cGroup.maxLastPostedDate)) cGroup.maxLastPostedDate = postDate;
+    if (itemIsActive) { sData.isActive = true; cGroup.hasAnyActivePipeline = true; }
+  });
+
+  clientGroupedDirectory = Object.values(clientsMap).map(c => {
+    c.sourcesArray = Object.values(c.sources).sort((a,b) => (b.lastPostedDate || '').localeCompare(a.lastPostedDate || ''));
+    return c;
+  });
+
+  applyDirectoryFilterAndSort();
+}
+
+function applyDirectoryFilterAndSort() {
+  const query = ($('#directorySearchInput').value||'').toLowerCase().trim();
+  
+  filteredDirectory = !query ? [...clientGroupedDirectory] : clientGroupedDirectory.filter(p => 
+    p.client.toLowerCase().includes(query) || p.cli.toString().toLowerCase().includes(query)
+  );
+
+  filteredDirectory.sort((a, b) => {
+    if (currentSortColumn === 'client') {
+      const comp = a.client.toLowerCase().localeCompare(b.client.toLowerCase());
+      return sortDirections.client === 'asc' ? comp : -comp;
+    } else if (currentSortColumn === 'vacancies') {
+      return sortDirections.vacancies === 'asc' ? a.totalVacancies - b.totalVacancies : b.totalVacancies - a.totalVacancies;
+    } else if (currentSortColumn === 'status') {
+      return sortDirections.status === 'asc' ? (a.hasAnyActivePipeline?1:0) - (b.hasAnyActivePipeline?1:0) : (b.hasAnyActivePipeline?1:0) - (a.hasAnyActivePipeline?1:0);
+    } else if (currentSortColumn === 'lastPosted') {
+      return sortDirections.lastPosted === 'asc' ? (a.maxLastPostedDate || '').localeCompare(b.maxLastPostedDate || '') : (b.maxLastPostedDate || '').localeCompare(a.maxLastPostedDate || '');
+    }
+    return 0;
+  });
+
+  renderDirectoryTable();
+}
+
+/* Global bridge to access modal launch from directory view engine context safely */
+window.openAddModalFromDirectory = function(client, cli, source) {
+  modalModeSwitch.checked = false;
+  modalContent.className = 'modal-content mode-new';
+  modalMode = 'new';
+  openModal(jobModal);
+  clearModalFields();
+  mClient.value = client;
+  mCli.value = (cli === 'undefined' || cli === 'null') ? '' : cli;
+  mSource.value = source;
+  mDate.value = isoDate(new Date());
+  populateModalSuggestions();
+  renderModalRecent();
+};
+
+function renderDirectoryTable() {
+  const tbody = $('#directoryTableBody');
+  tbody.innerHTML = '';
+
+  if (filteredDirectory.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; padding: 20px; color: var(--muted);">No matching client pipelines located.</td></tr>';
+    return;
+  }
+
+  filteredDirectory.forEach((p, index) => {
+    const clientDisplay = p.cli ? `${p.client} <span class="small-muted">(${p.cli})</span>` : p.client;
+    const statusPill = p.hasAnyActivePipeline ? '<span class="status-pill active">Active Pipeline</span>' : '<span class="status-pill stale">Stale / No Active Posts</span>';
+    const sourceCount = p.sourcesArray.length;
+    
+    let sourceCellContent = sourceCount === 1 
+      ? `<div style="display:flex; align-items:center; justify-content:space-between; gap:10px;"><a href="${p.sourcesArray[0].url}" target="_blank" class="url-link" onclick="event.stopPropagation();" title="${p.sourcesArray[0].url}">${p.sourcesArray[0].url}</a><button class="action-pill" style="margin:0;" onclick="event.stopPropagation(); openAddModalFromDirectory('${escapeHtml(p.client)}', '${escapeHtml(p.cli)}', '${escapeHtml(p.sourcesArray[0].url)}')">+ Add</button></div>`
+      : `<strong style="color: var(--primary);">▼ View Channels <span class="source-badge">${sourceCount} Sources</span></strong>`;
+
+    const tr = document.createElement('tr');
+    tr.className = 'client-row' + (sourceCount > 1 ? ' has-multiple' : '');
+    tr.innerHTML = `<td style="font-weight: 700;">${clientDisplay}</td><td>${sourceCellContent}</td><td style="text-align: center; font-weight: 600;">${p.totalVacancies}</td><td style="text-align: center;">${statusPill}</td><td style="font-weight: 600;">${fmt(p.maxLastPostedDate)}</td>`;
+
+    if (sourceCount > 1) tr.addEventListener('click', () => $('#drop-dir-'+index)?.classList.toggle('show'));
+    tbody.appendChild(tr);
+
+    if (sourceCount > 1) {
+      const dropTr = document.createElement('tr');
+      dropTr.id = `drop-dir-${index}`;
+      dropTr.className = 'dropdown-row';
+      let nestedRows = '';
+      p.sourcesArray.forEach(s => {
+        nestedRows += `<tr><td><a href="${s.url}" target="_blank" class="url-link" title="${s.url}">${s.url}</a></td><td style="text-align: center; font-weight: 600;">${s.count}</td><td style="text-align: center;">${s.isActive?'<span class="status-pill active">Active</span>':'<span class="status-pill stale">Stale</span>'}</td><td style="font-weight: 600; color: #4b5563;">${fmt(s.lastPostedDate)}</td><td><button class="action-pill" style="margin:0;" onclick="event.stopPropagation(); openAddModalFromDirectory('${escapeHtml(p.client)}', '${escapeHtml(p.cli)}', '${escapeHtml(s.url)}')">+ Add</button></td></tr>`;
+      });
+      dropTr.innerHTML = `<td colspan="5" style="padding: 0;"><div class="nested-wrapper"><table class="nested-table"><thead><tr><th>Source Pipeline URL</th><th style="width: 100px; text-align: center;">Logged Posts</th><th style="width: 120px; text-align: center;">Link Status</th><th style="width: 150px;">Link Last Used</th><th style="width: 90px;">Action</th></tr></thead><tbody>${nestedRows}</tbody></table></div></td>`;
+      tbody.appendChild(dropTr);
+    }
+  });
+
+  updateDirectorySortHeaders();
+}
+
+function updateDirectorySortHeaders() {
+  const mapping = { client: 'sortClient', vacancies: 'sortVacancies', status: 'sortStatus', lastPosted: 'sortDate' };
+  Object.entries(mapping).forEach(([col, id]) => {
+    const th = $('#'+id); const icon = th.querySelector('.sort-icon');
+    if (col === currentSortColumn) { th.classList.add('active-sort'); icon.textContent = sortDirections[col] === 'asc' ? '▲' : '▼'; }
+    else { th.classList.remove('active-sort'); }
+  });
+}
+
+/* Directory Sort Attachments */
+$('#sortClient').addEventListener('click', () => { currentSortColumn = 'client'; sortDirections.client = sortDirections.client === 'asc' ? 'desc' : 'asc'; applyDirectoryFilterAndSort(); });
+$('#sortVacancies').addEventListener('click', () => { currentSortColumn = 'vacancies'; sortDirections.vacancies = sortDirections.vacancies === 'desc' ? 'asc' : 'desc'; applyDirectoryFilterAndSort(); });
+$('#sortStatus').addEventListener('click', () => { currentSortColumn = 'status'; sortDirections.status = sortDirections.status === 'desc' ? 'asc' : 'desc'; applyDirectoryFilterAndSort(); });
+$('#sortDate').addEventListener('click', () => { currentSortColumn = 'lastPosted'; sortDirections.lastPosted = sortDirections.lastPosted === 'desc' ? 'asc' : 'desc'; applyDirectoryFilterAndSort(); });
+$('#directorySearchInput').addEventListener('input', applyDirectoryFilterAndSort);
+
+
+/* ===================== Modal Interactivity & Form Utilities ===================== */
+function openModal(el){
+  if(!el) return; el.classList.add('show');
+  const escHandler = e => { if(e.key==='Escape'){ el.classList.remove('show'); document.removeEventListener('keydown', escHandler); } };
+  document.addEventListener('keydown', escHandler);
+  el.addEventListener('click', function overlayClose(ev){ if(ev.target === el){ el.classList.remove('show'); el.removeEventListener('click', overlayClose); document.removeEventListener('keydown', escHandler); } });
+}
+
+jobsListClose.addEventListener('click', ()=> jobsListModal.classList.remove('show'));
+jobModalClose.addEventListener('click', ()=> jobModal.classList.remove('show'));
+$('#modalCloseBtn')?.addEventListener('click', ()=> jobModal.classList.remove('show'));
+
+modalModeSwitch.addEventListener('change', (e)=>{
+  modalMode = e.target.checked ? 'pending' : 'new';
+  if(modalMode==='new'){ modalContent.classList.remove('mode-pending'); modalContent.classList.add('mode-new'); }
+  else { modalContent.classList.remove('mode-new'); modalContent.classList.add('mode-pending'); }
+});
+
+addJobBtn.addEventListener('click', ()=> { modalModeSwitch.checked=false; modalContent.className='modal-content mode-new'; modalMode='new'; openModal(jobModal); clearModalFields(); mDate.value = isoDate(new Date()); populateModalSuggestions(); renderModalRecent(); });
+addPendingBtn.addEventListener('click', ()=> { modalModeSwitch.checked=true; modalContent.className='modal-content mode-pending'; modalMode='pending'; openModal(jobModal); clearModalFields(); mDate.value = isoDate(new Date()); populateModalSuggestions(); renderModalRecent(); });
+
+function clearModalFields(){ mId.value=''; mTitle.value=''; mClient.value=''; mCli.value=''; mSource.value=''; mDate.value=''; mExp.value=''; mNotes.value=''; }
+
+function populateModalSuggestions(){
+  const clients = Array.from(new Set(cache.map(j=> j.client||'').filter(Boolean))).slice(0,200);
+  const clis = Array.from(new Set(cache.map(j=> j.clientNumber||j.cli||j.clientNum||'').filter(Boolean))).slice(0,200);
+  const srcs = Array.from(new Set(cache.map(j=> j.source||'').filter(Boolean))).slice(0,200);
+  mClientList.innerHTML=''; mCliList.innerHTML=''; mSourceList.innerHTML='';
+  clients.forEach(c=>{ const o=document.createElement('option'); o.value=c; mClientList.appendChild(o); });
+  clis.forEach(c=>{ const o=document.createElement('option'); o.value=c; mCliList.appendChild(o); });
+  srcs.forEach(s=>{ const o=document.createElement('option'); o.value=s; mSourceList.appendChild(o); });
+}
+
+function syncClientData(sourceInput, targetInput, sourceKey, targetKey){
+  const val = sourceInput.value.trim(); if(!val) return;
+  const match = cache.find(j=> (j[sourceKey]||'').toLowerCase() === val.toLowerCase());
+  if(match && match[targetKey]) { targetInput.value = match[targetKey]; renderModalRecent(); }
+}
+mClient.addEventListener('input', ()=> { renderModalRecent(); syncClientData(mClient, mCli, 'client', 'clientNumber'); });
+mCli.addEventListener('input', ()=> { renderModalRecent(); syncClientData(mCli, mClient, 'clientNumber', 'client'); });
+
+/* Re-engineered Swapped Modal Representation Structure Output */
+function renderModalRecent(){
+  const clientName = (mClient.value||'').trim().toLowerCase();
+  const clientNum = (mCli.value||'').trim();
+  if((!clientName || clientName.length < 2) && (!clientNum || clientNum.length < 2)){ modalRecent.innerHTML = '<div class="small-muted" style="padding:8px">Enter client name or CLI to see recent jobs</div>'; return; }
+  let list = cache.slice();
+  if(clientName) list = list.filter(j=> (j.client||'').toLowerCase().includes(clientName));
+  if(clientNum) list = list.filter(j=> (j.clientNumber||j.cli||j.clientNum||'').toString().includes(clientNum));
+  list.sort((a,b)=> b._sortTime - a._sortTime);
+  
+  modalRecent.innerHTML='';
+  if(!list.length){ modalRecent.innerHTML='<div class="small-muted" style="padding:8px">No recent jobs for this client</div>'; return; }
+  list.slice(0,30).forEach(j=>{
+    const status = isActiveJob(j) ? 'Active' : 'Expired';
+    const statusColor = status === 'Expired' ? 'var(--danger)' : 'var(--primary)';
+    
+    const div=document.createElement('div'); div.style.padding='8px'; div.style.borderBottom='1px solid #f1f5f9';
+    div.innerHTML = `
+      <div style="font-weight:700">${escapeHtml(j.title||'')}</div>
+      <div style="font-weight:700; color:${statusColor}; margin-top:4px;">Expires: ${j.expiration ? fmt(j.expiration) : 'No Expiration'} (${status})</div>
+      <div class="small-muted" style="margin-top:2px;">Posted: ${fmt(j.datePosted)}</div>
+      <div style="margin-top:6px"><button data-load="${j.id}" class="action-pill">Edit</button></div>
+    `;
+    modalRecent.appendChild(div);
+  });
+}
+
+modalRecent.addEventListener('click', async (e)=>{
+  const id = e.target.dataset.load; if(!id) return;
+  try{
+    let doc = await jobsCol.doc(id).get(); let data = doc.exists ? doc.data() : null;
+    if(!data){ const pd = await pendingCol.doc(id).get(); if(pd.exists) data = pd.data(); }
+    if(!data) return;
+    mId.value = id; mTitle.value = data.title || ''; mClient.value = data.client || '';
+    mCli.value = data.clientNumber || ''; mSource.value = data.source || '';
+    mDate.value = isoDate(data.datePosted || new Date()); mExp.value = isoDate(data.expiration || ''); mNotes.value = data.notes || '';
+    renderModalRecent(); 
+  }catch(err){}
+});
+
+modalSaveBtn.addEventListener('click', async ()=>{
+  const payload = {
+    title: (mTitle.value||'').trim(), client: (mClient.value||'').trim(), clientNumber: (mCli.value||'').trim(),
+    source: (mSource.value||'').trim(), datePosted: mDate.value || isoDate(new Date()), expiration: mExp.value || '',
+    notes: (mNotes.value||'').trim(), updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+  };
+  if(!payload.title){ showToast('Title required', true); return; }
+  if(!mId.value) payload.createdAt = firebase.firestore.FieldValue.serverTimestamp();
+  
+  const id = mId.value; const isPendingMode = modalMode === 'pending';
+  const targetCol = isPendingMode ? pendingCol : jobsCol;
+
+  try{
+    if(id){
+        const original = cache.find(j => j.id === id);
+        if(original && (original._pending !== isPendingMode)){
+            await (original._pending ? pendingCol : jobsCol).doc(id).delete();
+            await targetCol.add(payload);
+        } else { await targetCol.doc(id).set(payload, {merge:true}); }
+        showToast('Updated successfully');
+    } else { await targetCol.add(payload); showToast('Saved successfully'); }
+    mId.value = ''; mTitle.value = ''; mTitle.focus();
+  }catch(e){ showToast('Save failed', true); }
+});
+
+/* Dashboard Interactive Action Router Delegation hooks */
+document.addEventListener('click', async (e)=>{
+  const editId = e.target.dataset.edit; const delId = e.target.dataset.delete; const simId = e.target.dataset.similar;
+  if(editId){
+    const entry = cache.find(x=> x.id === editId);
+    if(entry) {
+      modalModeSwitch.checked = entry._pending;
+      modalContent.className = 'modal-content ' + (entry._pending ? 'mode-pending' : 'mode-new');
+      modalMode = entry._pending ? 'pending' : 'new';
+      openModal(jobModal);
+      mId.value = editId; mTitle.value = entry.title || ''; mClient.value = entry.client || ''; mCli.value = entry.clientNumber || '';
+      mSource.value = entry.source || ''; mDate.value = isoDate(entry.datePosted); mExp.value = isoDate(entry.expiration); mNotes.value = entry.notes || '';
+      renderModalRecent();
+    }
+  } else if(delId){
+    if(!confirm('Delete this item?')) return;
+    try{ await jobsCol.doc(delId).delete(); showToast('Deleted'); }catch(e){ try{ await pendingCol.doc(delId).delete(); showToast('Deleted'); }catch(err){} }
+  } else if(simId){
+    const entry = cache.find(x=> x.id === simId);
+    if(entry){
+       modalModeSwitch.checked=false; modalContent.className='modal-content mode-new'; modalMode='new'; openModal(jobModal);
+       mId.value = ''; mTitle.value = ''; mClient.value = entry.client || ''; mCli.value = entry.clientNumber || '';
+       mSource.value = entry.source || ''; mDate.value = isoDate(new Date()); mExp.value = isoDate(entry.expiration); mNotes.value = entry.notes || '';
+       renderModalRecent();
+    }
+  }
+});
+
+/* General Scope Configuration Stats Modal popup hook logic blocks */
+$$('#overviewRow .stat-box, #expirationRow .stat-box').forEach(box=>{
+  box.addEventListener('click', ()=>{
+    const key = box.dataset.key; if(!key) return;
+    const now = new Date(); const tStr = isoDate(now);
+    const {start: wStart, end: wEnd} = getWeekRange(now);
+    const lwDate = new Date(now); lwDate.setDate(now.getDate()-7); const {start: lwStart, end: lwEnd} = getWeekRange(lwDate);
+    let filtered = [];
+    
+    if(key==='activeJobs') filtered = cache.filter(j=> isActiveJob(j));
+    else if(key==='pendingVacancies') filtered = cache.filter(j=> j._pending);
+    else if(key==='totalJobs') filtered = cache.slice();
+    else if(key==='jobsPostedToday') filtered = cache.filter(j=> j.datePosted === tStr);
+    else if(key==='jobsPostedYesterday'){ const y=new Date(now); y.setDate(y.getDate()-1); filtered = cache.filter(j=> j.datePosted === isoDate(y)); }
+    else if(key==='jobsThisWeek') filtered = cache.filter(j=> { const d=new Date(j.datePosted||0); return d>=wStart && d<=wEnd; });
+    else if(key==='jobsThisMonth') filtered = cache.filter(j=> { const d=new Date(j.datePosted||0); return d.getMonth()===now.getMonth() && d.getFullYear()===now.getFullYear(); });
+    else if(key==='jobsThisYear') filtered = cache.filter(j=> { const d=new Date(j.datePosted||0); return d.getFullYear()===now.getFullYear(); });
+    else if(key==='cosSaturday'){ const upcomingSaturday = getUpcomingSaturday(); filtered = cache.filter(j=> !j._pending && isActiveJob(j) && (!j.expiration || new Date(j.expiration + 'T23:59:59') >= upcomingSaturday)); }
+    else if(key==='expLastWeek') filtered = cache.filter(j=> j.expiration && new Date(j.expiration + 'T00:00:00') >= lwStart && new Date(j.expiration + 'T00:00:00') <= lwEnd);
+    else if(key==='expYesterday') { const y=new Date(now); y.setDate(y.getDate()-1); filtered = cache.filter(j=> j.expiration === isoDate(y)); }
+    else if(key==='expToday') filtered = cache.filter(j=> j.expiration === tStr);
+    else if(key==='expThisWeek') filtered = cache.filter(j=> j.expiration && new Date(j.expiration + 'T00:00:00') >= wStart && new Date(j.expiration + 'T00:00:00') <= wEnd);
+    
+    let offset = Math.min(10, filtered.length);
+    function renderOffset(){
+      jobsListBody.innerHTML = ''; filtered.slice(0, offset).forEach(j=> jobsListBody.appendChild(createRow(j)));
+      jobsListTitle.textContent = (box.querySelector('h4')?.textContent || 'Jobs') + ' ('+filtered.length+')';
+      jobsListShowMore.style.display = offset < filtered.length ? 'inline-block' : 'none';
+    }
+    jobsListShowMore.onclick = ()=> { offset = Math.min(offset+10, filtered.length); renderOffset(); };
+    openModal(jobsListModal); renderOffset();
+  });
+});
+
+/* ===================== See More & Debounce & Clipboard Exports ===================== */
+$('#activeMoreBtn').addEventListener('click', () => { activeLimit += 10; renderActive(activeLimit, currentList); });
+$('#pendingMoreBtn').addEventListener('click', () => { pendingLimit += 10; renderPending(pendingLimit, currentList); });
+$('#searchInput').addEventListener('input', (function(){ let t; return function(){ clearTimeout(t); t = setTimeout(triggerSearch, 220); }; })());
+
+function openExportModal(){ const el = $('#exportModal'); el.classList.remove('hidden'); el.classList.add('show'); }
+function closeExportModal(){ $('#exportModal').classList.remove('show'); }
+document.addEventListener('change', e=>{ if(e.target.id==='exportRange') $('#customDates').style.display = e.target.value==='custom'?'block':'none'; });
+
+function runClipboardExport(){
+  const range = $('#exportRange').value; const startInput = $('#exportStart').value; const endInput = $('#exportEnd').value;
+  const now = new Date(); let startDate, endDate;
+
+  if(range === 'today'){ startDate = isoDate(now); endDate = isoDate(now); }
+  else if(range === 'yesterday'){ const y = new Date(now); y.setDate(now.getDate() - 1); startDate = isoDate(y); endDate = isoDate(y); }
+  else if(range === 'week'){ const week = getWeekRange(now); startDate = isoDate(week.start); endDate = isoDate(week.end); }
+  else if(range === 'custom'){ if(!startInput || !endInput){ showToast("Select date bounds", true); return; } startDate = startInput; endDate = endInput; }
+
+  const filtered = cache.filter(j => j.datePosted && j.datePosted >= startDate && j.datePosted <= endDate).sort((a,b)=> new Date(a.datePosted) - new Date(b.datePosted));
+  if(!filtered.length){ showToast("No targets found"); return; }
+
+  const jobsByDate = {};
+  filtered.forEach(j => { if(!jobsByDate[j.datePosted]) jobsByDate[j.datePosted] = []; jobsByDate[j.datePosted].push(j); });
+
+  let output = "";
+  Object.keys(jobsByDate).sort().forEach(dateKey => {
+     output += `${new Date(dateKey + 'T12:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric' })}\n\n`;
+     const jobsByClient = {};
+     jobsByDate[dateKey].forEach(j => {
+        const k = `${j.client || 'Unknown Client'} ${j.clientNumber ? `(${j.clientNumber})` : ''}`.trim();
+        if(!jobsByClient[k]) jobsByClient[k] = []; jobsByClient[k].push(j);
+     });
+
+     Object.keys(jobsByClient).forEach(clientHeader => {
+        output += `--- ${clientHeader} ---\n`;
+        const signatureGroups = {};
+        jobsByClient[clientHeader].forEach(j => {
+            const sig = (j.source || '') + '|||' + (j.expiration || '');
+            if(!signatureGroups[sig]) signatureGroups[sig] = []; signatureGroups[sig].push(j);
+        });
+
+        Object.entries(signatureGroups).forEach(([sig, jobs]) => {
+            const [src, exp] = sig.split('|||');
+            if(src) output += `${src}\n`;
+            jobs.forEach(job => { output += `${job.title || 'Untitled Job'}\n`; });
+            if(exp) output += `Expires: ${fmt(exp)}\n`;
+            output += '\n';
+        });
+     });
+     output += '\n';
+  });
+
+  navigator.clipboard.writeText(output).then(()=>{ showToast("Copied to clipboard"); closeExportModal(); }).catch(()=>{ showToast("Copy failed", true); });
+}
+
+/* Theme Engine Configuration */
+darkBtn.addEventListener('click', ()=>{ const d=document.body.classList.toggle('dark'); localStorage.setItem('vac_tracker_dark_mode', d?'on':'off'); darkBtn.textContent=d?'☀️':'🌙'; });
+document.addEventListener('DOMContentLoaded', async ()=>{ mDate.value=isoDate(new Date()); if(localStorage.getItem('vac_tracker_dark_mode')==='on'){ document.body.classList.add('dark'); darkBtn.textContent='☀️'; } await startFirebaseSafe(); });
+</script>
+</body>
+</html>
