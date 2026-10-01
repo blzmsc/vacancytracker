@@ -3,11 +3,46 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Vacancy Tracker & Pipeline Directory v86</title>
+<title>Vacancy Tracker & Pipeline Directory v91</title>
 
-<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
-<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
-<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
+<!-- Firebase v10 Modular (Auth + Firestore) -->
+<script type="module">
+  // Import Firebase modules from the CDN (v10.12.0)
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+  import { getFirestore, collection, getDocs, addDoc, doc, getDoc, setDoc, deleteDoc, query, orderBy, serverTimestamp, enableIndexedDbPersistence, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+  import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+
+  // Your web app's Firebase configuration
+  const firebaseConfig = {
+    apiKey: "AIzaSyD0nR-pVtGUT1FubOErjxofkj35OaJ1SiY",
+    authDomain: "vacancy-tracker-ed178.firebaseapp.com",
+    projectId: "vacancy-tracker-ed178",
+    storageBucket: "vacancy-tracker-ed178.appspot.com",
+    messagingSenderId: "660427846567",
+    appId: "1:660427846567:web:d6c4ded047ad1c3329bc82"
+  };
+
+  // Initialize Firebase
+  const app = initializeApp(firebaseConfig);
+  const db = getFirestore(app);
+  const auth = getAuth(app);
+
+  // Enable offline persistence (optional)
+  try {
+    await enableIndexedDbPersistence(db);
+  } catch (err) {
+    console.warn('Persistence error (likely multiple tabs open):', err.code);
+  }
+
+  // Expose to window for use in the main script (non‑module)
+  window.firebaseApp = app;
+  window.firebaseDb = db;
+  window.firebaseAuth = auth;
+  window.firebaseModules = {
+    collection, getDocs, addDoc, doc, getDoc, setDoc, deleteDoc, query, orderBy, serverTimestamp, onSnapshot,
+    signInWithEmailAndPassword, signOut, onAuthStateChanged
+  };
+</script>
 
 <style>
 /* === Base Variables === */
@@ -89,7 +124,7 @@ body{
 
 /* Directory layout specifics */
 .client-row { cursor: pointer; transition: background-color 0.15s; }
-.client-row:hover { background-color: #f1f5f9; } /* Adjusted light mode hover shade */
+.client-row:hover { background-color: #f1f5f9; }
 .client-row.has-multiple { background-color: #fdfdfd; }
 .dropdown-row { display: none; background-color: #f8fafc; }
 .dropdown-row.show { display: table-row; }
@@ -156,7 +191,7 @@ body.dark .list, body.dark .card, body.dark .recent-list, body.dark .table-wrapp
 body.dark .table th, body.dark .table td { border-bottom-color: #30363d; }
 body.dark .table th { background: #1f242c; }
 body.dark .table th.sortable:hover { background: #282e38; }
-body.dark .client-row:hover { background-color: #282e38; } /* Adjusted dark mode hover shade */
+body.dark .client-row:hover { background-color: #282e38; }
 body.dark .dropdown-row, body.dark .nested-wrapper { background-color: #111418; }
 body.dark .nested-table { background: #161b22; border-color: #30363d; }
 body.dark .nested-table th { background: #1f242c; border-bottom-color: #30363d; }
@@ -178,11 +213,63 @@ body.dark .action-pill.similar { background: #21262d; }
 }
 #expirationRow #cosSaturdayCount { color: #ef4444; }
 #expirationRow .stat-box[data-key="cosSaturday"] { background: rgba(127, 29, 29, 0.35); border: 1px solid rgba(239, 68, 68, 0.5); }
+
+/* === LOGIN OVERLAY STYLES (added) === */
+#login-overlay {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(0, 0, 0, 0.85); display: flex;
+    justify-content: center; align-items: center; z-index: 9999;
+}
+.login-card {
+    background: #ffffff; padding: 30px; border-radius: 8px;
+    width: 320px; box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+}
+.login-card h2 { margin-top: 0; margin-bottom: 20px; text-align: center; color: #222; }
+.form-group { margin-bottom: 15px; }
+.form-group label { display: block; margin-bottom: 5px; font-size: 14px; font-weight: bold; }
+.form-group input {
+    width: 100%; padding: 8px; border-radius: 4px;
+    border: 1px solid #ccc; box-sizing: border-box;
+}
+#login-error { color: #dc3545; font-size: 13px; margin-bottom: 15px; display: none; }
+.login-btn {
+    width: 100%; padding: 10px; background: #007bff; color: white;
+    border: none; border-radius: 4px; font-weight: bold; cursor: pointer;
+}
+.login-btn:hover { background: #0056b3; }
+#logout-btn {
+    display: none; padding: 6px 14px; background: #dc3545; color: white;
+    border: none; border-radius: 4px; cursor: pointer; font-size: 13px; font-weight: bold;
+}
+#logout-btn:hover { background: #a71d2a; }
 </style>
 </head>
 <body>
+
+<!-- ========== SECURE LOGIN OVERLAY ========== -->
+<div id="login-overlay">
+    <div class="login-card">
+        <h2>Vacancy Tracker</h2>
+        <form id="login-form">
+            <div class="form-group">
+                <label>Email</label>
+                <input type="email" id="login-email" required placeholder="Enter your email">
+            </div>
+            <div class="form-group">
+                <label>Password</label>
+                <input type="password" id="login-password" required placeholder="Enter your password">
+            </div>
+            <div id="login-error">Invalid email or password. Please try again.</div>
+            <button type="submit" class="login-btn">Sign In</button>
+        </form>
+    </div>
+</div>
+
 <div class="container">
-  <h1 class="app-title">Vacancy Tracker</h1>
+  <div style="display: flex; justify-content: space-between; align-items: center;">
+    <h1 class="app-title" style="flex:1; text-align: left;">Vacancy Tracker</h1>
+    <button id="logout-btn">Logout</button>
+  </div>
 
   <div class="tab-navigation">
     <button class="tab-btn active" id="tabDashboard">Dashboard</button>
@@ -216,7 +303,7 @@ body.dark .action-pill.similar { background: #21262d; }
     <div class="controls-row" role="toolbar" aria-label="actions">
       <button id="addJobBtn" class="btn">Add Vacancy</button>
       <button id="addPendingBtn" class="btn secondary">Add Pending</button>
-      <button onclick="openExportModal()" class="btn secondary">Export</button>
+      <button id="exportBtn" class="btn secondary">Export</button>
       <button id="darkBtn" class="btn secondary">🌙</button>
       <div id="firebaseStatus" class="small-muted" style="margin-left:8px">Checking Firebase...</div>
     </div>
@@ -353,8 +440,8 @@ body.dark .action-pill.similar { background: #21262d; }
           </div>
         </div>
         <div style="display:flex;gap:10px;margin-top:10px;justify-content:flex-end">
-            <button onclick="closeExportModal()" class="btn secondary">Close</button>
-            <button onclick="runClipboardExport()" class="btn">Copy</button>
+            <button id="exportCloseBtn" class="btn secondary">Close</button>
+            <button id="exportCopyBtn" class="btn">Copy</button>
         </div>
     </div>
   </div>
@@ -362,582 +449,728 @@ body.dark .action-pill.similar { background: #21262d; }
 
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
+<!-- ========== MAIN SCRIPT (non‑module, uses window.firebaseModules) ========== -->
 <script>
-/* ===================== Firebase Config ===================== */
-const firebaseConfig = {
-  apiKey: "AIzaSyD0nR-pVtGUT1FubOErjxofkj35OaJ1SiY",
-  authDomain: "vacancy-tracker-ed178.firebaseapp.com",
-  projectId: "vacancy-tracker-ed178",
-  storageBucket: "vacancy-tracker-ed178.appspot.com",
-  messagingSenderId: "660427846567",
-  appId: "1:660427846567:web:d6c4ded047ad1c3329bc82"
-};
-
-/* ===================== Global Parameters ===================== */
-const $ = s => document.querySelector(s);
-const $$ = s => Array.from(document.querySelectorAll(s));
-function showToast(msg, err=false){ const t=$('#toast'); t.style.background = err? 'var(--danger)' : 'var(--primary)'; t.textContent = msg; t.style.display = 'block'; setTimeout(()=>t.style.display='none', 3000); }
-
-let db=null, jobsCol=null, pendingCol=null, cache = []; 
-let currentList = []; 
-let activeLimit=10, pendingLimit=10;
-let modalMode = 'new'; 
-
-/* Directory Engine Sorting Configurations */
-let clientGroupedDirectory = [];
-let filteredDirectory = [];
-let sortDirections = { client: 'asc', vacancies: 'desc', status: 'desc', lastPosted: 'desc' };
-let currentSortColumn = 'client';
-
-/* Date Parsing Helpers */
-function isoDate(d){ 
-  if(!d) return ''; 
-  if(typeof d === 'string' && d.match(/^\d{4}-\d{2}-\d{2}$/)) return d;
-  try {
-    const date = new Date(d);
-    if(isNaN(date.getTime())) return '';
-    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-  } catch(e){ return ''; }
-}
-
-function fmt(d){ 
-  if(!d) return ''; 
-  try{ 
-    const val = (typeof d==='string' && d.length===10) ? d+'T00:00:00' : d;
-    return new Date(val).toLocaleDateString(undefined, {year:'numeric',month:'short',day:'numeric'}); 
-  }catch(e){ return d; } 
-}
-
-function todayStart(){ const t=new Date(); t.setHours(0,0,0,0); return t; }
-function escapeHtml(s){ if(s==null) return ''; return (''+s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-
-function isActiveJob(job){
-  if(!job) return false;
-  if(!job.expiration || job.expiration==='') return true;
-  try{ const exp = new Date(job.expiration + 'T23:59:59'); return exp.getTime() >= todayStart().getTime(); }catch(e){ return true; }
-}
-
-function getWeekRange(date){
-  const d = new Date(date);
-  const day = d.getDay();
-  const start = new Date(d); start.setDate(d.getDate() - day); start.setHours(0,0,0,0);
-  const end = new Date(start); end.setDate(start.getDate() + 6); end.setHours(23,59,59,999);
-  return {start, end};
-}
-
-function getUpcomingSaturday(){
-  const now = new Date();
-  const diff = (6 - now.getDay() + 7) % 7;
-  const sat = new Date(now); sat.setDate(now.getDate() + diff); sat.setHours(23,59,59,999);
-  return sat;
-}
-
-/* ===================== Core System Initialization ===================== */
-async function startFirebaseSafe(){
-  try{
-    if(!firebase.apps.length) firebase.initializeApp(firebaseConfig);
-    try{ const tmp = firebase.firestore(); await tmp.enablePersistence({synchronizeTabs:true}); db=firebase.firestore(); }catch(e){ db=firebase.firestore(); }
-    jobsCol = db.collection('jobs');
-    pendingCol = db.collection('pendingJobs');
-    
-    jobsCol.onSnapshot(()=>{ $('#firebaseStatus').textContent = 'Connected — Live Sync: ' + (new Date()).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}); $('#firebaseStatus').style.color='green'; loadCache().catch(()=>{}); }, ()=>{ $('#firebaseStatus').textContent='Offline'; $('#firebaseStatus').style.color='red'; });
-    pendingCol.onSnapshot(()=>{ loadCache().catch(()=>{}); }, ()=>{});
-  }catch(err){ $('#firebaseStatus').textContent='Offline'; $('#firebaseStatus').style.color='red'; }
-}
-
-async function loadCache(){
-  try{
-    const [jsnap, psnap] = await Promise.all([jobsCol.get(), pendingCol.get()]);
-    const jobs = jsnap.docs.map(d=> ({ id:d.id, _pending:false, ...d.data() }) );
-    const pend = psnap.docs.map(d=> ({ id:d.id, _pending:true, ...d.data() }) );
-    let all = jobs.concat(pend);
-
-    all.forEach(i=>{
-      if(i.datePosted) i.datePosted = isoDate(i.datePosted);
-      else if(i.createdAt) i.datePosted = isoDate(i.createdAt);
-      else i.datePosted = isoDate(new Date());
-
-      i.expiration = isoDate(i.expiration || i.expirationDate || i.expiry || i.expires);
-      
-      if(i.createdAt && i.createdAt.toDate) i._sortTime = i.createdAt.toDate().getTime();
-      else if(i.createdAt) i._sortTime = new Date(i.createdAt).getTime();
-      else i._sortTime = new Date(i.datePosted).getTime();
-      
-      if(!i.title) i.title = i.jobTitle || i.vacancyTitle || '';
-    });
-
-    all.sort((a,b)=> {
-       const dateA = new Date(a.datePosted).getTime();
-       const dateB = new Date(b.datePosted).getTime();
-       if(dateA !== dateB) return dateB - dateA; 
-       return b._sortTime - a._sortTime; 
-    });
-
-    cache = all;
-    triggerSearch();
-  }catch(e){ console.error(e); showToast('Load failed', true); }
-}
-
-function triggerSearch(){
-  const q=($('#searchInput').value||'').trim().toLowerCase();
-  if(!q){ currentList = cache; } else {
-    currentList = cache.filter(j=>{
-      return [ j.title||'', j.client||'', j.clientNumber||'', j.source||'', j.notes||'' ].join(' ').toLowerCase().includes(q);
-    });
-  }
-  renderAll();
-  processDirectoryData(); // Pipeline Engine updates synchronously
-}
-
-function renderAll(){
-  populateOverview(currentList);
-  renderActive(activeLimit, currentList);
-  renderPending(pendingLimit, currentList);
-  renderStaleClients(currentList);
-  populateModalSuggestions();
-  if(jobModal.classList.contains('show')) renderModalRecent();
-}
-
-/* ===================== Component Layout Builders ===================== */
-function populateOverview(sourceList){
-  const now = new Date();
-  const {start: thisWeekStart, end: thisWeekEnd} = getWeekRange(now);
-  const lwDate = new Date(now); lwDate.setDate(now.getDate() - 7);
-  const {start: lastWeekStart, end: lastWeekEnd} = getWeekRange(lwDate);
-  const yStr = isoDate(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1));
-  const tStr = isoDate(now);
-
-  $('#activeJobsCount').textContent = sourceList.filter(j=> isActiveJob(j)).length;
-  $('#pendingJobsCount').textContent = sourceList.filter(j=> j._pending).length;
-  $('#totalJobsCount').textContent = sourceList.length;
-  $('#jobsPostedTodayCount').textContent = sourceList.filter(j=> j.datePosted === tStr).length;
-  $('#jobsPostedYesterdayCount').textContent = sourceList.filter(j=> j.datePosted === yStr).length;
-  $('#jobsThisWeekCount').textContent = sourceList.filter(j=> { const d=new Date(j.datePosted||0); return d>=thisWeekStart && d<=thisWeekEnd; }).length;
-  $('#jobsPostedMonthCount').textContent = sourceList.filter(j=> { const d=new Date(j.datePosted||0); return d.getMonth()===now.getMonth() && d.getFullYear()===now.getFullYear(); }).length;
-  $('#jobsPostedYearCount').textContent = sourceList.filter(j=> { const d=new Date(j.datePosted||0); return d.getFullYear()===now.getFullYear(); }).length;
-
-  const upcomingSaturday = getUpcomingSaturday();
-  $('#cosSaturdayCount').textContent = sourceList.filter(j=> !j._pending && isActiveJob(j) && (!j.expiration || new Date(j.expiration + 'T23:59:59') >= upcomingSaturday)).length;
-  $('#cosHeader').textContent = `COS (${upcomingSaturday.toLocaleDateString(undefined,{month:'short',day:'numeric'})})`;
-
-  $('#expLastWeekCount').textContent = sourceList.filter(j=> j.expiration && new Date(j.expiration + 'T00:00:00') >= lastWeekStart && new Date(j.expiration + 'T00:00:00') <= lastWeekEnd).length;
-  $('#expYesterdayCount').textContent = sourceList.filter(j=> j.expiration === yStr).length;
-  $('#expTodayCount').textContent = sourceList.filter(j=> j.expiration === tStr).length;
-  $('#expThisWeekCount').textContent = sourceList.filter(j=> j.expiration && new Date(j.expiration + 'T00:00:00') >= thisWeekStart && new Date(j.expiration + 'T00:00:00') <= thisWeekEnd).length;
-}
-
-function createRow(j){
-  const displayTitle = escapeHtml(j.title || 'Untitled Job');
-  const cliHtml = `<span class="client-name" title="${j.clientNumber? 'CLI: '+escapeHtml(j.clientNumber):''}">${escapeHtml(j.client||'')}</span>`;
-  const linkHtml = j.source? `<a href="${escapeHtml(j.source)}" target="_blank">Link</a>` : '';
-  const actionsHtml = `<button class="action-pill" data-edit="${j.id}">Edit</button><button class="action-pill similar" data-similar="${j.id}">Similar</button><button class="action-pill delete" data-delete="${j.id}">X</button>`;
-  const tr=document.createElement('tr');
-  tr.innerHTML = `<td>${fmt(j.datePosted)}</td><td><span class="job-title">${displayTitle}</span></td><td class="client-cell">${cliHtml}</td><td>${linkHtml}</td><td>${fmt(j.expiration)}</td><td>${actionsHtml}</td>`;
-  return tr;
-}
-
-function renderActive(limit, list){ activeBody.innerHTML=''; list.filter(j=> isActiveJob(j)).slice(0,limit).forEach(j=> activeBody.appendChild(createRow(j))); }
-function renderPending(limit, list){ pendingBody.innerHTML=''; list.filter(j=> j._pending).slice(0,limit).forEach(j=> pendingBody.appendChild(createRow(j))); }
-
-function renderSubRows(index, p){
-  $('#drop-dir-'+index)?.classList.toggle('show');
-}
-
-function renderStaleClients(sourceList){
-  oldestClientsBody.innerHTML='';
-  const clientMap = {};
-  sourceList.forEach(j=>{
-     if(!j.client) return;
-     const t = new Date(j.datePosted).getTime();
-     if(!clientMap[j.client] || t > clientMap[j.client].time) clientMap[j.client] = { time: t, job: j };
-  });
-  Object.values(clientMap).sort((a,b) => a.time - b.time).slice(0,10).forEach(item => {
-     const j = item.job;
-     const tr = document.createElement('tr');
-     tr.innerHTML = `<td>${fmt(j.datePosted)}</td><td style="font-weight:700">${escapeHtml(j.title)}</td><td><span class="client-name">${escapeHtml(j.client)}</span></td><td>${j.source?`<a href="${escapeHtml(j.source)}" target="_blank">Link</a>`:''}</td><td>${j.expiration?fmt(j.expiration):'-'}</td><td><button class="action-pill" data-edit="${j.id}">Edit</button><button class="action-pill similar" data-similar="${j.id}">Similar</button><button class="action-pill delete" data-delete="${j.id}">X</button></td>`;
-     oldestClientsBody.appendChild(tr);
-  });
-}
-
-/* ===================== Navigation Tabs Logic ===================== */
-$('#tabDashboard').addEventListener('click', () => switchTab('Dashboard'));
-$('#tabDirectory').addEventListener('click', () => switchTab('Directory'));
-
-function switchTab(target) {
-  if(target === 'Dashboard') {
-    $('#tabDashboard').classList.add('active'); $('#tabDirectory').classList.remove('active');
-    $('#panelDashboard').classList.add('active'); $('#panelDirectory').classList.remove('active');
-  } else {
-    $('#tabDirectory').classList.add('active'); $('#tabDashboard').classList.remove('active');
-    $('#panelDirectory').classList.add('active'); $('#panelDashboard').classList.remove('active');
-    processDirectoryData();
-  }
-}
-
-/* ===================== DIRECTORY PROCESSING & ENGINE ===================== */
-function processDirectoryData() {
-  const clientsMap = {};
-
-  cache.forEach(job => {
-    const clientName = (job.client || 'Unknown Client').trim();
-    const cliNum = job.clientNumber || job.cli || job.clientNum || '';
-    const sourceUrl = (job.source || '').trim();
-    if (!sourceUrl) return;
-
-    const postDate = job.datePosted;
-    const itemIsActive = isActiveJob(job);
-
-    if (!clientsMap[clientName]) {
-      clientsMap[clientName] = { client: clientName, cli: cliNum, totalVacancies: 0, maxLastPostedDate: postDate, hasAnyActivePipeline: false, sources: {} };
-    }
-
-    const cGroup = clientsMap[clientName];
-    if (cliNum && !cGroup.cli) cGroup.cli = cliNum;
-
-    if (!cGroup.sources[sourceUrl]) {
-      cGroup.sources[sourceUrl] = { url: sourceUrl, count: 0, lastPostedDate: postDate, isActive: false };
-    }
-
-    const sData = cGroup.sources[sourceUrl];
-    sData.count++;
-    cGroup.totalVacancies++;
-
-    if (postDate && (!sData.lastPostedDate || postDate > sData.lastPostedDate)) sData.lastPostedDate = postDate;
-    if (postDate && (!cGroup.maxLastPostedDate || postDate > cGroup.maxLastPostedDate)) cGroup.maxLastPostedDate = postDate;
-    if (itemIsActive) { sData.isActive = true; cGroup.hasAnyActivePipeline = true; }
-  });
-
-  clientGroupedDirectory = Object.values(clientsMap).map(c => {
-    c.sourcesArray = Object.values(c.sources).sort((a,b) => (b.lastPostedDate || '').localeCompare(a.lastPostedDate || ''));
-    return c;
-  });
-
-  applyDirectoryFilterAndSort();
-}
-
-function applyDirectoryFilterAndSort() {
-  const query = ($('#directorySearchInput').value||'').toLowerCase().trim();
-  
-  filteredDirectory = !query ? [...clientGroupedDirectory] : clientGroupedDirectory.filter(p => 
-    p.client.toLowerCase().includes(query) || p.cli.toString().toLowerCase().includes(query)
-  );
-
-  filteredDirectory.sort((a, b) => {
-    if (currentSortColumn === 'client') {
-      const comp = a.client.toLowerCase().localeCompare(b.client.toLowerCase());
-      return sortDirections.client === 'asc' ? comp : -comp;
-    } else if (currentSortColumn === 'vacancies') {
-      return sortDirections.vacancies === 'asc' ? a.totalVacancies - b.totalVacancies : b.totalVacancies - a.totalVacancies;
-    } else if (currentSortColumn === 'status') {
-      return sortDirections.status === 'asc' ? (a.hasAnyActivePipeline?1:0) - (b.hasAnyActivePipeline?1:0) : (b.hasAnyActivePipeline?1:0) - (a.hasAnyActivePipeline?1:0);
-    } else if (currentSortColumn === 'lastPosted') {
-      return sortDirections.lastPosted === 'asc' ? (a.maxLastPostedDate || '').localeCompare(b.maxLastPostedDate || '') : (b.maxLastPostedDate || '').localeCompare(a.maxLastPostedDate || '');
-    }
-    return 0;
-  });
-
-  renderDirectoryTable();
-}
-
-/* Global bridge to access modal launch from directory view engine context safely */
-window.openAddModalFromDirectory = function(client, cli, source) {
-  modalModeSwitch.checked = false;
-  modalContent.className = 'modal-content mode-new';
-  modalMode = 'new';
-  openModal(jobModal);
-  clearModalFields();
-  mClient.value = client;
-  mCli.value = (cli === 'undefined' || cli === 'null') ? '' : cli;
-  mSource.value = source;
-  mDate.value = isoDate(new Date());
-  populateModalSuggestions();
-  renderModalRecent();
-};
-
-function renderDirectoryTable() {
-  const tbody = $('#directoryTableBody');
-  tbody.innerHTML = '';
-
-  if (filteredDirectory.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; padding: 20px; color: var(--muted);">No matching client pipelines located.</td></tr>';
+// Wait for the Firebase module script to expose its globals
+(function initApp() {
+  if (!window.firebaseModules) {
+    setTimeout(initApp, 50);
     return;
   }
 
-  filteredDirectory.forEach((p, index) => {
-    const clientDisplay = p.cli ? `${p.client} <span class="small-muted">(${p.cli})</span>` : p.client;
-    const statusPill = p.hasAnyActivePipeline ? '<span class="status-pill active">Active Pipeline</span>' : '<span class="status-pill stale">Stale / No Active Posts</span>';
-    const sourceCount = p.sourcesArray.length;
-    
-    let sourceCellContent = sourceCount === 1 
-      ? `<div style="display:flex; align-items:center; justify-content:space-between; gap:10px;"><a href="${p.sourcesArray[0].url}" target="_blank" class="url-link" onclick="event.stopPropagation();" title="${p.sourcesArray[0].url}">${p.sourcesArray[0].url}</a><button class="action-pill" style="margin:0;" onclick="event.stopPropagation(); openAddModalFromDirectory('${escapeHtml(p.client)}', '${escapeHtml(p.cli)}', '${escapeHtml(p.sourcesArray[0].url)}')">+ Add</button></div>`
-      : `<strong style="color: var(--primary);">▼ View Channels <span class="source-badge">${sourceCount} Sources</span></strong>`;
+  /* ===================== GLOBAL ALIASES ===================== */
+  const $ = s => document.querySelector(s);
+  const $$ = s => Array.from(document.querySelectorAll(s));
+  function showToast(msg, err=false){ const t=$('#toast'); t.style.background = err? 'var(--danger)' : 'var(--primary)'; t.textContent = msg; t.style.display = 'block'; setTimeout(()=>t.style.display='none', 3000); }
 
-    const tr = document.createElement('tr');
-    tr.className = 'client-row' + (sourceCount > 1 ? ' has-multiple' : '');
-    tr.innerHTML = `<td style="font-weight: 700;">${clientDisplay}</td><td>${sourceCellContent}</td><td style="text-align: center; font-weight: 600;">${p.totalVacancies}</td><td style="text-align: center;">${statusPill}</td><td style="font-weight: 600;">${fmt(p.maxLastPostedDate)}</td>`;
+  // Firebase references
+  const db = window.firebaseDb;
+  const auth = window.firebaseAuth;
+  const {
+    collection, getDocs, addDoc, doc, getDoc, setDoc, deleteDoc, query, orderBy, serverTimestamp, onSnapshot,
+    signInWithEmailAndPassword, signOut, onAuthStateChanged
+  } = window.firebaseModules;
 
-    if (sourceCount > 1) tr.addEventListener('click', () => $('#drop-dir-'+index)?.classList.toggle('show'));
-    tbody.appendChild(tr);
+  // Collections
+  const jobsCol = collection(db, 'jobs');
+  const pendingCol = collection(db, 'pendingJobs');
 
-    if (sourceCount > 1) {
-      const dropTr = document.createElement('tr');
-      dropTr.id = `drop-dir-${index}`;
-      dropTr.className = 'dropdown-row';
-      let nestedRows = '';
-      p.sourcesArray.forEach(s => {
-        nestedRows += `<tr><td><a href="${s.url}" target="_blank" class="url-link" title="${s.url}">${s.url}</a></td><td style="text-align: center; font-weight: 600;">${s.count}</td><td style="text-align: center;">${s.isActive?'<span class="status-pill active">Active</span>':'<span class="status-pill stale">Stale</span>'}</td><td style="font-weight: 600; color: #4b5563;">${fmt(s.lastPostedDate)}</td><td><button class="action-pill" style="margin:0;" onclick="event.stopPropagation(); openAddModalFromDirectory('${escapeHtml(p.client)}', '${escapeHtml(p.cli)}', '${escapeHtml(s.url)}')">+ Add</button></td></tr>`;
+  /* ===================== STATE ===================== */
+  let cache = []; 
+  let currentList = []; 
+  let activeLimit=10, pendingLimit=10;
+  let modalMode = 'new'; 
+
+  /* Directory Engine Sorting Configurations */
+  let clientGroupedDirectory = [];
+  let filteredDirectory = [];
+  let sortDirections = { client: 'asc', vacancies: 'desc', status: 'desc', lastPosted: 'desc' };
+  let currentSortColumn = 'client';
+
+  /* ===================== HELPERS ===================== */
+  function isoDate(d){ 
+    if(!d) return ''; 
+    if(typeof d === 'string' && d.match(/^\d{4}-\d{2}-\d{2}$/)) return d;
+    try {
+      const date = new Date(d);
+      if(isNaN(date.getTime())) return '';
+      return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    } catch(e){ return ''; }
+  }
+
+  function fmt(d){ 
+    if(!d) return ''; 
+    try{ 
+      const val = (typeof d==='string' && d.length===10) ? d+'T00:00:00' : d;
+      return new Date(val).toLocaleDateString(undefined, {year:'numeric',month:'short',day:'numeric'}); 
+    }catch(e){ return d; } 
+  }
+
+  function todayStart(){ const t=new Date(); t.setHours(0,0,0,0); return t; }
+  function escapeHtml(s){ if(s==null) return ''; return (''+s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+  function isActiveJob(job){
+    if(!job) return false;
+    if(!job.expiration || job.expiration==='') return true;
+    try{ const exp = new Date(job.expiration + 'T23:59:59'); return exp.getTime() >= todayStart().getTime(); }catch(e){ return true; }
+  }
+
+  function getWeekRange(date){
+    const d = new Date(date);
+    const day = d.getDay();
+    const start = new Date(d); start.setDate(d.getDate() - day); start.setHours(0,0,0,0);
+    const end = new Date(start); end.setDate(start.getDate() + 6); end.setHours(23,59,59,999);
+    return {start, end};
+  }
+
+  function getUpcomingSaturday(){
+    const now = new Date();
+    const diff = (6 - now.getDay() + 7) % 7;
+    const sat = new Date(now); sat.setDate(now.getDate() + diff); sat.setHours(23,59,59,999);
+    return sat;
+  }
+
+  /* ===================== AUTHENTICATION ===================== */
+  const loginOverlay = document.getElementById('login-overlay');
+  const logoutBtn = document.getElementById('logout-btn');
+  const loginForm = document.getElementById('login-form');
+  const loginError = document.getElementById('login-error');
+  const loginEmail = document.getElementById('login-email');
+  const loginPassword = document.getElementById('login-password');
+
+  // Monitor auth state
+  onAuthStateChanged(auth, (user) => {
+    if (user) {
+      loginOverlay.style.display = 'none';
+      if (logoutBtn) logoutBtn.style.display = 'inline-block';
+      startFirebaseSync();
+    } else {
+      loginOverlay.style.display = 'flex';
+      if (logoutBtn) logoutBtn.style.display = 'none';
+    }
+  });
+
+  // Handle login submit
+  loginForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const email = loginEmail.value;
+    const password = loginPassword.value;
+    try {
+      await signInWithEmailAndPassword(auth, email, password);
+      loginError.style.display = 'none';
+    } catch (error) {
+      loginError.style.display = 'block';
+    }
+  });
+
+  // Handle logout
+  if (logoutBtn) {
+    logoutBtn.addEventListener('click', () => {
+      signOut(auth).then(() => {
+        window.location.reload();
       });
-      dropTr.innerHTML = `<td colspan="5" style="padding: 0;"><div class="nested-wrapper"><table class="nested-table"><thead><tr><th>Source Pipeline URL</th><th style="width: 100px; text-align: center;">Logged Posts</th><th style="width: 120px; text-align: center;">Link Status</th><th style="width: 150px;">Link Last Used</th><th style="width: 90px;">Action</th></tr></thead><tbody>${nestedRows}</tbody></table></div></td>`;
-      tbody.appendChild(dropTr);
-    }
-  });
+    });
+  }
 
-  updateDirectorySortHeaders();
-}
+  /* ===================== FIREBASE SYNC ===================== */
+  let syncStarted = false;
+  function startFirebaseSync() {
+    if (syncStarted) return;
+    syncStarted = true;
 
-function updateDirectorySortHeaders() {
-  const mapping = { client: 'sortClient', vacancies: 'sortVacancies', status: 'sortStatus', lastPosted: 'sortDate' };
-  Object.entries(mapping).forEach(([col, id]) => {
-    const th = $('#'+id); const icon = th.querySelector('.sort-icon');
-    if (col === currentSortColumn) { th.classList.add('active-sort'); icon.textContent = sortDirections[col] === 'asc' ? '▲' : '▼'; }
-    else { th.classList.remove('active-sort'); }
-  });
-}
+    try {
+      onSnapshot(jobsCol, () => {
+        const statusEl = document.getElementById('firebaseStatus');
+        if (statusEl) {
+          statusEl.textContent = 'Connected — Live Sync: ' + (new Date()).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+          statusEl.style.color = 'green';
+        }
+        loadCache().catch(()=>{});
+      }, () => {
+        const statusEl = document.getElementById('firebaseStatus');
+        if (statusEl) {
+          statusEl.textContent = 'Offline';
+          statusEl.style.color = 'red';
+        }
+      });
 
-/* Directory Sort Attachments */
-$('#sortClient').addEventListener('click', () => { currentSortColumn = 'client'; sortDirections.client = sortDirections.client === 'asc' ? 'desc' : 'asc'; applyDirectoryFilterAndSort(); });
-$('#sortVacancies').addEventListener('click', () => { currentSortColumn = 'vacancies'; sortDirections.vacancies = sortDirections.vacancies === 'desc' ? 'asc' : 'desc'; applyDirectoryFilterAndSort(); });
-$('#sortStatus').addEventListener('click', () => { currentSortColumn = 'status'; sortDirections.status = sortDirections.status === 'desc' ? 'asc' : 'desc'; applyDirectoryFilterAndSort(); });
-$('#sortDate').addEventListener('click', () => { currentSortColumn = 'lastPosted'; sortDirections.lastPosted = sortDirections.lastPosted === 'desc' ? 'asc' : 'desc'; applyDirectoryFilterAndSort(); });
-$('#directorySearchInput').addEventListener('input', applyDirectoryFilterAndSort);
+      onSnapshot(pendingCol, () => {
+        loadCache().catch(()=>{});
+      }, ()=>{});
 
-
-/* ===================== Modal Interactivity & Form Utilities ===================== */
-function openModal(el){
-  if(!el) return; el.classList.add('show');
-  const escHandler = e => { if(e.key==='Escape'){ el.classList.remove('show'); document.removeEventListener('keydown', escHandler); } };
-  document.addEventListener('keydown', escHandler);
-  el.addEventListener('click', function overlayClose(ev){ if(ev.target === el){ el.classList.remove('show'); el.removeEventListener('click', overlayClose); document.removeEventListener('keydown', escHandler); } });
-}
-
-jobsListClose.addEventListener('click', ()=> jobsListModal.classList.remove('show'));
-jobModalClose.addEventListener('click', ()=> jobModal.classList.remove('show'));
-$('#modalCloseBtn')?.addEventListener('click', ()=> jobModal.classList.remove('show'));
-
-modalModeSwitch.addEventListener('change', (e)=>{
-  modalMode = e.target.checked ? 'pending' : 'new';
-  if(modalMode==='new'){ modalContent.classList.remove('mode-pending'); modalContent.classList.add('mode-new'); }
-  else { modalContent.classList.remove('mode-new'); modalContent.classList.add('mode-pending'); }
-});
-
-addJobBtn.addEventListener('click', ()=> { modalModeSwitch.checked=false; modalContent.className='modal-content mode-new'; modalMode='new'; openModal(jobModal); clearModalFields(); mDate.value = isoDate(new Date()); populateModalSuggestions(); renderModalRecent(); });
-addPendingBtn.addEventListener('click', ()=> { modalModeSwitch.checked=true; modalContent.className='modal-content mode-pending'; modalMode='pending'; openModal(jobModal); clearModalFields(); mDate.value = isoDate(new Date()); populateModalSuggestions(); renderModalRecent(); });
-
-function clearModalFields(){ mId.value=''; mTitle.value=''; mClient.value=''; mCli.value=''; mSource.value=''; mDate.value=''; mExp.value=''; mNotes.value=''; }
-
-function populateModalSuggestions(){
-  const clients = Array.from(new Set(cache.map(j=> j.client||'').filter(Boolean))).slice(0,200);
-  const clis = Array.from(new Set(cache.map(j=> j.clientNumber||j.cli||j.clientNum||'').filter(Boolean))).slice(0,200);
-  const srcs = Array.from(new Set(cache.map(j=> j.source||'').filter(Boolean))).slice(0,200);
-  mClientList.innerHTML=''; mCliList.innerHTML=''; mSourceList.innerHTML='';
-  clients.forEach(c=>{ const o=document.createElement('option'); o.value=c; mClientList.appendChild(o); });
-  clis.forEach(c=>{ const o=document.createElement('option'); o.value=c; mCliList.appendChild(o); });
-  srcs.forEach(s=>{ const o=document.createElement('option'); o.value=s; mSourceList.appendChild(o); });
-}
-
-function syncClientData(sourceInput, targetInput, sourceKey, targetKey){
-  const val = sourceInput.value.trim(); if(!val) return;
-  const match = cache.find(j=> (j[sourceKey]||'').toLowerCase() === val.toLowerCase());
-  if(match && match[targetKey]) { targetInput.value = match[targetKey]; renderModalRecent(); }
-}
-mClient.addEventListener('input', ()=> { renderModalRecent(); syncClientData(mClient, mCli, 'client', 'clientNumber'); });
-mCli.addEventListener('input', ()=> { renderModalRecent(); syncClientData(mCli, mClient, 'clientNumber', 'client'); });
-
-/* Re-engineered Swapped Modal Representation Structure Output */
-function renderModalRecent(){
-  const clientName = (mClient.value||'').trim().toLowerCase();
-  const clientNum = (mCli.value||'').trim();
-  if((!clientName || clientName.length < 2) && (!clientNum || clientNum.length < 2)){ modalRecent.innerHTML = '<div class="small-muted" style="padding:8px">Enter client name or CLI to see recent jobs</div>'; return; }
-  let list = cache.slice();
-  if(clientName) list = list.filter(j=> (j.client||'').toLowerCase().includes(clientName));
-  if(clientNum) list = list.filter(j=> (j.clientNumber||j.cli||j.clientNum||'').toString().includes(clientNum));
-  list.sort((a,b)=> b._sortTime - a._sortTime);
-  
-  modalRecent.innerHTML='';
-  if(!list.length){ modalRecent.innerHTML='<div class="small-muted" style="padding:8px">No recent jobs for this client</div>'; return; }
-  list.slice(0,30).forEach(j=>{
-    const status = isActiveJob(j) ? 'Active' : 'Expired';
-    const statusColor = status === 'Expired' ? 'var(--danger)' : 'var(--primary)';
-    
-    const div=document.createElement('div'); div.style.padding='8px'; div.style.borderBottom='1px solid #f1f5f9';
-    div.innerHTML = `
-      <div style="font-weight:700">${escapeHtml(j.title||'')}</div>
-      <div style="font-weight:700; color:${statusColor}; margin-top:4px;">Expires: ${j.expiration ? fmt(j.expiration) : 'No Expiration'} (${status})</div>
-      <div class="small-muted" style="margin-top:2px;">Posted: ${fmt(j.datePosted)}</div>
-      <div style="margin-top:6px"><button data-load="${j.id}" class="action-pill">Edit</button></div>
-    `;
-    modalRecent.appendChild(div);
-  });
-}
-
-modalRecent.addEventListener('click', async (e)=>{
-  const id = e.target.dataset.load; if(!id) return;
-  try{
-    let doc = await jobsCol.doc(id).get(); let data = doc.exists ? doc.data() : null;
-    if(!data){ const pd = await pendingCol.doc(id).get(); if(pd.exists) data = pd.data(); }
-    if(!data) return;
-    mId.value = id; mTitle.value = data.title || ''; mClient.value = data.client || '';
-    mCli.value = data.clientNumber || ''; mSource.value = data.source || '';
-    mDate.value = isoDate(data.datePosted || new Date()); mExp.value = isoDate(data.expiration || ''); mNotes.value = data.notes || '';
-    renderModalRecent(); 
-  }catch(err){}
-});
-
-modalSaveBtn.addEventListener('click', async ()=>{
-  const payload = {
-    title: (mTitle.value||'').trim(), client: (mClient.value||'').trim(), clientNumber: (mCli.value||'').trim(),
-    source: (mSource.value||'').trim(), datePosted: mDate.value || isoDate(new Date()), expiration: mExp.value || '',
-    notes: (mNotes.value||'').trim(), updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-  };
-  if(!payload.title){ showToast('Title required', true); return; }
-  if(!mId.value) payload.createdAt = firebase.firestore.FieldValue.serverTimestamp();
-  
-  const id = mId.value; const isPendingMode = modalMode === 'pending';
-  const targetCol = isPendingMode ? pendingCol : jobsCol;
-
-  try{
-    if(id){
-        const original = cache.find(j => j.id === id);
-        if(original && (original._pending !== isPendingMode)){
-            await (original._pending ? pendingCol : jobsCol).doc(id).delete();
-            await targetCol.add(payload);
-        } else { await targetCol.doc(id).set(payload, {merge:true}); }
-        showToast('Updated successfully');
-    } else { await targetCol.add(payload); showToast('Saved successfully'); }
-    mId.value = ''; mTitle.value = ''; mTitle.focus();
-  }catch(e){ showToast('Save failed', true); }
-});
-
-/* Dashboard Interactive Action Router Delegation hooks */
-document.addEventListener('click', async (e)=>{
-  const editId = e.target.dataset.edit; const delId = e.target.dataset.delete; const simId = e.target.dataset.similar;
-  if(editId){
-    const entry = cache.find(x=> x.id === editId);
-    if(entry) {
-      modalModeSwitch.checked = entry._pending;
-      modalContent.className = 'modal-content ' + (entry._pending ? 'mode-pending' : 'mode-new');
-      modalMode = entry._pending ? 'pending' : 'new';
-      openModal(jobModal);
-      mId.value = editId; mTitle.value = entry.title || ''; mClient.value = entry.client || ''; mCli.value = entry.clientNumber || '';
-      mSource.value = entry.source || ''; mDate.value = isoDate(entry.datePosted); mExp.value = isoDate(entry.expiration); mNotes.value = entry.notes || '';
-      renderModalRecent();
-    }
-  } else if(delId){
-    if(!confirm('Delete this item?')) return;
-    try{ await jobsCol.doc(delId).delete(); showToast('Deleted'); }catch(e){ try{ await pendingCol.doc(delId).delete(); showToast('Deleted'); }catch(err){} }
-  } else if(simId){
-    const entry = cache.find(x=> x.id === simId);
-    if(entry){
-       modalModeSwitch.checked=false; modalContent.className='modal-content mode-new'; modalMode='new'; openModal(jobModal);
-       mId.value = ''; mTitle.value = ''; mClient.value = entry.client || ''; mCli.value = entry.clientNumber || '';
-       mSource.value = entry.source || ''; mDate.value = isoDate(new Date()); mExp.value = isoDate(entry.expiration); mNotes.value = entry.notes || '';
-       renderModalRecent();
+      loadCache();
+    } catch (err) {
+      const statusEl = document.getElementById('firebaseStatus');
+      if (statusEl) {
+        statusEl.textContent = 'Offline';
+        statusEl.style.color = 'red';
+      }
     }
   }
-});
 
-/* General Scope Configuration Stats Modal popup hook logic blocks */
-$$('#overviewRow .stat-box, #expirationRow .stat-box').forEach(box=>{
-  box.addEventListener('click', ()=>{
-    const key = box.dataset.key; if(!key) return;
-    const now = new Date(); const tStr = isoDate(now);
-    const {start: wStart, end: wEnd} = getWeekRange(now);
-    const lwDate = new Date(now); lwDate.setDate(now.getDate()-7); const {start: lwStart, end: lwEnd} = getWeekRange(lwDate);
-    let filtered = [];
-    
-    if(key==='activeJobs') filtered = cache.filter(j=> isActiveJob(j));
-    else if(key==='pendingVacancies') filtered = cache.filter(j=> j._pending);
-    else if(key==='totalJobs') filtered = cache.slice();
-    else if(key==='jobsPostedToday') filtered = cache.filter(j=> j.datePosted === tStr);
-    else if(key==='jobsPostedYesterday'){ const y=new Date(now); y.setDate(y.getDate()-1); filtered = cache.filter(j=> j.datePosted === isoDate(y)); }
-    else if(key==='jobsThisWeek') filtered = cache.filter(j=> { const d=new Date(j.datePosted||0); return d>=wStart && d<=wEnd; });
-    else if(key==='jobsThisMonth') filtered = cache.filter(j=> { const d=new Date(j.datePosted||0); return d.getMonth()===now.getMonth() && d.getFullYear()===now.getFullYear(); });
-    else if(key==='jobsThisYear') filtered = cache.filter(j=> { const d=new Date(j.datePosted||0); return d.getFullYear()===now.getFullYear(); });
-    else if(key==='cosSaturday'){ const upcomingSaturday = getUpcomingSaturday(); filtered = cache.filter(j=> !j._pending && isActiveJob(j) && (!j.expiration || new Date(j.expiration + 'T23:59:59') >= upcomingSaturday)); }
-    else if(key==='expLastWeek') filtered = cache.filter(j=> j.expiration && new Date(j.expiration + 'T00:00:00') >= lwStart && new Date(j.expiration + 'T00:00:00') <= lwEnd);
-    else if(key==='expYesterday') { const y=new Date(now); y.setDate(y.getDate()-1); filtered = cache.filter(j=> j.expiration === isoDate(y)); }
-    else if(key==='expToday') filtered = cache.filter(j=> j.expiration === tStr);
-    else if(key==='expThisWeek') filtered = cache.filter(j=> j.expiration && new Date(j.expiration + 'T00:00:00') >= wStart && new Date(j.expiration + 'T00:00:00') <= wEnd);
-    
-    let offset = Math.min(10, filtered.length);
-    function renderOffset(){
-      jobsListBody.innerHTML = ''; filtered.slice(0, offset).forEach(j=> jobsListBody.appendChild(createRow(j)));
-      jobsListTitle.textContent = (box.querySelector('h4')?.textContent || 'Jobs') + ' ('+filtered.length+')';
-      jobsListShowMore.style.display = offset < filtered.length ? 'inline-block' : 'none';
+  async function loadCache(){
+    try {
+      const [jsnap, psnap] = await Promise.all([getDocs(jobsCol), getDocs(pendingCol)]);
+      const jobs = jsnap.docs.map(d => ({ id: d.id, _pending: false, ...d.data() }));
+      const pend = psnap.docs.map(d => ({ id: d.id, _pending: true, ...d.data() }));
+      let all = jobs.concat(pend);
+
+      all.forEach(i => {
+        if (i.datePosted) {
+          i.datePosted = isoDate(i.datePosted);
+        } else if (i.createdAt) {
+          if (i.createdAt.toDate) i.datePosted = isoDate(i.createdAt.toDate());
+          else i.datePosted = isoDate(i.createdAt);
+        } else {
+          i.datePosted = isoDate(new Date());
+        }
+
+        i.expiration = isoDate(i.expiration || i.expirationDate || i.expiry || i.expires);
+        
+        if (i.createdAt && i.createdAt.toDate) i._sortTime = i.createdAt.toDate().getTime();
+        else if (i.createdAt) i._sortTime = new Date(i.createdAt).getTime();
+        else i._sortTime = new Date(i.datePosted).getTime();
+        
+        if (!i.title) i.title = i.jobTitle || i.vacancyTitle || '';
+      });
+
+      all.sort((a, b) => {
+        const dateA = new Date(a.datePosted).getTime();
+        const dateB = new Date(b.datePosted).getTime();
+        if (dateA !== dateB) return dateB - dateA;
+        return b._sortTime - a._sortTime;
+      });
+
+      cache = all;
+      triggerSearch();
+    } catch(e) {
+      console.error(e);
+      showToast('Load failed', true);
     }
-    jobsListShowMore.onclick = ()=> { offset = Math.min(offset+10, filtered.length); renderOffset(); };
-    openModal(jobsListModal); renderOffset();
+  }
+
+  function triggerSearch(){
+    const q = ($('#searchInput').value || '').trim().toLowerCase();
+    if (!q) {
+      currentList = cache;
+    } else {
+      currentList = cache.filter(j => {
+        return [j.title||'', j.client||'', j.clientNumber||'', j.source||'', j.notes||''].join(' ').toLowerCase().includes(q);
+      });
+    }
+    renderAll();
+    processDirectoryData();
+  }
+
+  function renderAll(){
+    populateOverview(currentList);
+    renderActive(activeLimit, currentList);
+    renderPending(pendingLimit, currentList);
+    renderStaleClients(currentList);
+    populateModalSuggestions();
+    if (jobModal.classList.contains('show')) renderModalRecent();
+  }
+
+  /* ===================== COMPONENT BUILDERS ===================== */
+  function populateOverview(sourceList){
+    const now = new Date();
+    const {start: thisWeekStart, end: thisWeekEnd} = getWeekRange(now);
+    const lwDate = new Date(now); lwDate.setDate(now.getDate() - 7);
+    const {start: lastWeekStart, end: lastWeekEnd} = getWeekRange(lwDate);
+    const yStr = isoDate(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1));
+    const tStr = isoDate(now);
+
+    $('#activeJobsCount').textContent = sourceList.filter(j => isActiveJob(j)).length;
+    $('#pendingJobsCount').textContent = sourceList.filter(j => j._pending).length;
+    $('#totalJobsCount').textContent = sourceList.length;
+    $('#jobsPostedTodayCount').textContent = sourceList.filter(j => j.datePosted === tStr).length;
+    $('#jobsPostedYesterdayCount').textContent = sourceList.filter(j => j.datePosted === yStr).length;
+    $('#jobsThisWeekCount').textContent = sourceList.filter(j => { const d = new Date(j.datePosted||0); return d >= thisWeekStart && d <= thisWeekEnd; }).length;
+    $('#jobsPostedMonthCount').textContent = sourceList.filter(j => { const d = new Date(j.datePosted||0); return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear(); }).length;
+    $('#jobsPostedYearCount').textContent = sourceList.filter(j => { const d = new Date(j.datePosted||0); return d.getFullYear() === now.getFullYear(); }).length;
+
+    const upcomingSaturday = getUpcomingSaturday();
+    $('#cosSaturdayCount').textContent = sourceList.filter(j => !j._pending && isActiveJob(j) && (!j.expiration || new Date(j.expiration + 'T23:59:59') >= upcomingSaturday)).length;
+    $('#cosHeader').textContent = `COS (${upcomingSaturday.toLocaleDateString(undefined,{month:'short',day:'numeric'})})`;
+
+    $('#expLastWeekCount').textContent = sourceList.filter(j => j.expiration && new Date(j.expiration + 'T00:00:00') >= lastWeekStart && new Date(j.expiration + 'T00:00:00') <= lastWeekEnd).length;
+    $('#expYesterdayCount').textContent = sourceList.filter(j => j.expiration === yStr).length;
+    $('#expTodayCount').textContent = sourceList.filter(j => j.expiration === tStr).length;
+    $('#expThisWeekCount').textContent = sourceList.filter(j => j.expiration && new Date(j.expiration + 'T00:00:00') >= thisWeekStart && new Date(j.expiration + 'T00:00:00') <= thisWeekEnd).length;
+  }
+
+  function createRow(j){
+    const displayTitle = escapeHtml(j.title || 'Untitled Job');
+    const cliHtml = `<span class="client-name" title="${j.clientNumber ? 'CLI: ' + escapeHtml(j.clientNumber) : ''}">${escapeHtml(j.client||'')}</span>`;
+    const linkHtml = j.source ? `<a href="${escapeHtml(j.source)}" target="_blank">Link</a>` : '';
+    const actionsHtml = `<button class="action-pill" data-edit="${j.id}">Edit</button><button class="action-pill similar" data-similar="${j.id}">Similar</button><button class="action-pill delete" data-delete="${j.id}">X</button>`;
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${fmt(j.datePosted)}</td><td><span class="job-title">${displayTitle}</span></td><td class="client-cell">${cliHtml}</td><td>${linkHtml}</td><td>${fmt(j.expiration)}</td><td>${actionsHtml}</td>`;
+    return tr;
+  }
+
+  function renderActive(limit, list){ 
+    const activeBody = $('#activeBody');
+    activeBody.innerHTML = ''; 
+    list.filter(j => isActiveJob(j)).slice(0, limit).forEach(j => activeBody.appendChild(createRow(j))); 
+  }
+  function renderPending(limit, list){ 
+    const pendingBody = $('#pendingBody');
+    pendingBody.innerHTML = ''; 
+    list.filter(j => j._pending).slice(0, limit).forEach(j => pendingBody.appendChild(createRow(j))); 
+  }
+
+  function renderStaleClients(sourceList){
+    const oldestClientsBody = $('#oldestClientsBody');
+    oldestClientsBody.innerHTML = '';
+    const clientMap = {};
+    sourceList.forEach(j => {
+      if (!j.client) return;
+      const t = new Date(j.datePosted).getTime();
+      if (!clientMap[j.client] || t > clientMap[j.client].time) clientMap[j.client] = { time: t, job: j };
+    });
+    Object.values(clientMap).sort((a,b) => a.time - b.time).slice(0,10).forEach(item => {
+      const j = item.job;
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${fmt(j.datePosted)}</td><td style="font-weight:700">${escapeHtml(j.title)}</td><td><span class="client-name">${escapeHtml(j.client)}</span></td><td>${j.source ? `<a href="${escapeHtml(j.source)}" target="_blank">Link</a>` : ''}</td><td>${j.expiration ? fmt(j.expiration) : '-'}</td><td><button class="action-pill" data-edit="${j.id}">Edit</button><button class="action-pill similar" data-similar="${j.id}">Similar</button><button class="action-pill delete" data-delete="${j.id}">X</button></td>`;
+      oldestClientsBody.appendChild(tr);
+    });
+  }
+
+  /* ===================== NAVIGATION ===================== */
+  $('#tabDashboard').addEventListener('click', () => switchTab('Dashboard'));
+  $('#tabDirectory').addEventListener('click', () => switchTab('Directory'));
+
+  function switchTab(target) {
+    if (target === 'Dashboard') {
+      $('#tabDashboard').classList.add('active'); $('#tabDirectory').classList.remove('active');
+      $('#panelDashboard').classList.add('active'); $('#panelDirectory').classList.remove('active');
+    } else {
+      $('#tabDirectory').classList.add('active'); $('#tabDashboard').classList.remove('active');
+      $('#panelDirectory').classList.add('active'); $('#panelDashboard').classList.remove('active');
+      processDirectoryData();
+    }
+  }
+
+  /* ===================== DIRECTORY ENGINE ===================== */
+  function processDirectoryData() {
+    const clientsMap = {};
+
+    cache.forEach(job => {
+      const clientName = (job.client || 'Unknown Client').trim();
+      const cliNum = job.clientNumber || job.cli || job.clientNum || '';
+      const sourceUrl = (job.source || '').trim();
+      if (!sourceUrl) return;
+
+      const postDate = job.datePosted;
+      const itemIsActive = isActiveJob(job);
+
+      if (!clientsMap[clientName]) {
+        clientsMap[clientName] = { client: clientName, cli: cliNum, totalVacancies: 0, maxLastPostedDate: postDate, hasAnyActivePipeline: false, sources: {} };
+      }
+
+      const cGroup = clientsMap[clientName];
+      if (cliNum && !cGroup.cli) cGroup.cli = cliNum;
+
+      if (!cGroup.sources[sourceUrl]) {
+        cGroup.sources[sourceUrl] = { url: sourceUrl, count: 0, lastPostedDate: postDate, isActive: false };
+      }
+
+      const sData = cGroup.sources[sourceUrl];
+      sData.count++;
+      cGroup.totalVacancies++;
+
+      if (postDate && (!sData.lastPostedDate || postDate > sData.lastPostedDate)) sData.lastPostedDate = postDate;
+      if (postDate && (!cGroup.maxLastPostedDate || postDate > cGroup.maxLastPostedDate)) cGroup.maxLastPostedDate = postDate;
+      if (itemIsActive) { sData.isActive = true; cGroup.hasAnyActivePipeline = true; }
+    });
+
+    clientGroupedDirectory = Object.values(clientsMap).map(c => {
+      c.sourcesArray = Object.values(c.sources).sort((a,b) => (b.lastPostedDate || '').localeCompare(a.lastPostedDate || ''));
+      return c;
+    });
+
+    applyDirectoryFilterAndSort();
+  }
+
+  function applyDirectoryFilterAndSort() {
+    const query = ($('#directorySearchInput').value || '').toLowerCase().trim();
+    
+    filteredDirectory = !query ? [...clientGroupedDirectory] : clientGroupedDirectory.filter(p => 
+      p.client.toLowerCase().includes(query) || p.cli.toString().toLowerCase().includes(query)
+    );
+
+    filteredDirectory.sort((a, b) => {
+      if (currentSortColumn === 'client') {
+        const comp = a.client.toLowerCase().localeCompare(b.client.toLowerCase());
+        return sortDirections.client === 'asc' ? comp : -comp;
+      } else if (currentSortColumn === 'vacancies') {
+        return sortDirections.vacancies === 'asc' ? a.totalVacancies - b.totalVacancies : b.totalVacancies - a.totalVacancies;
+      } else if (currentSortColumn === 'status') {
+        return sortDirections.status === 'asc' ? (a.hasAnyActivePipeline?1:0) - (b.hasAnyActivePipeline?1:0) : (b.hasAnyActivePipeline?1:0) - (a.hasAnyActivePipeline?1:0);
+      } else if (currentSortColumn === 'lastPosted') {
+        return sortDirections.lastPosted === 'asc' ? (a.maxLastPostedDate || '').localeCompare(b.maxLastPostedDate || '') : (b.maxLastPostedDate || '').localeCompare(a.maxLastPostedDate || '');
+      }
+      return 0;
+    });
+
+    renderDirectoryTable();
+  }
+
+  // Expose for the directory "+ Add" button
+  function openAddModalFromDirectory(client, cli, source) {
+    const modalModeSwitch = $('#modalModeSwitch');
+    const modalContent = $('#modalContent');
+    modalModeSwitch.checked = false;
+    modalContent.className = 'modal-content mode-new';
+    modalMode = 'new';
+    openModal($('#jobModal'));
+    clearModalFields();
+    $('#mClient').value = client;
+    $('#mCli').value = (cli === 'undefined' || cli === 'null') ? '' : cli;
+    $('#mSource').value = source;
+    $('#mDate').value = isoDate(new Date());
+    populateModalSuggestions();
+    renderModalRecent();
+  }
+  window.openAddModalFromDirectory = openAddModalFromDirectory;
+
+  function renderDirectoryTable() {
+    const tbody = $('#directoryTableBody');
+    tbody.innerHTML = '';
+
+    if (filteredDirectory.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; padding: 20px; color: var(--muted);">No matching client pipelines located.</td></tr>';
+      return;
+    }
+
+    filteredDirectory.forEach((p, index) => {
+      const clientDisplay = p.cli ? `${p.client} <span class="small-muted">(${p.cli})</span>` : p.client;
+      const statusPill = p.hasAnyActivePipeline ? '<span class="status-pill active">Active Pipeline</span>' : '<span class="status-pill stale">Stale / No Active Posts</span>';
+      const sourceCount = p.sourcesArray.length;
+      
+      let sourceCellContent = sourceCount === 1 
+        ? `<div style="display:flex; align-items:center; justify-content:space-between; gap:10px;"><a href="${p.sourcesArray[0].url}" target="_blank" class="url-link" onclick="event.stopPropagation();" title="${p.sourcesArray[0].url}">${p.sourcesArray[0].url}</a><button class="action-pill" style="margin:0;" onclick="event.stopPropagation(); window.openAddModalFromDirectory('${escapeHtml(p.client)}', '${escapeHtml(p.cli)}', '${escapeHtml(p.sourcesArray[0].url)}')">+ Add</button></div>`
+        : `<strong style="color: var(--primary);">▼ View Channels <span class="source-badge">${sourceCount} Sources</span></strong>`;
+
+      const tr = document.createElement('tr');
+      tr.className = 'client-row' + (sourceCount > 1 ? ' has-multiple' : '');
+      tr.innerHTML = `<td style="font-weight: 700;">${clientDisplay}</td><td>${sourceCellContent}</td><td style="text-align: center; font-weight: 600;">${p.totalVacancies}</td><td style="text-align: center;">${statusPill}</td><td style="font-weight: 600;">${fmt(p.maxLastPostedDate)}</td>`;
+
+      if (sourceCount > 1) tr.addEventListener('click', () => $('#drop-dir-' + index)?.classList.toggle('show'));
+      tbody.appendChild(tr);
+
+      if (sourceCount > 1) {
+        const dropTr = document.createElement('tr');
+        dropTr.id = `drop-dir-${index}`;
+        dropTr.className = 'dropdown-row';
+        let nestedRows = '';
+        p.sourcesArray.forEach(s => {
+          nestedRows += `<tr><td><a href="${s.url}" target="_blank" class="url-link" title="${s.url}">${s.url}</a></td><td style="text-align: center; font-weight: 600;">${s.count}</td><td style="text-align: center;">${s.isActive ? '<span class="status-pill active">Active</span>' : '<span class="status-pill stale">Stale</span>'}</td><td style="font-weight: 600; color: #4b5563;">${fmt(s.lastPostedDate)}</td><td><button class="action-pill" style="margin:0;" onclick="event.stopPropagation(); window.openAddModalFromDirectory('${escapeHtml(p.client)}', '${escapeHtml(p.cli)}', '${escapeHtml(s.url)}')">+ Add</button></td></tr>`;
+        });
+        dropTr.innerHTML = `<td colspan="5" style="padding: 0;"><div class="nested-wrapper"><table class="nested-table"><thead><tr><th>Source Pipeline URL</th><th style="width: 100px; text-align: center;">Logged Posts</th><th style="width: 120px; text-align: center;">Link Status</th><th style="width: 150px;">Link Last Used</th><th style="width: 90px;">Action</th></tr></thead><tbody>${nestedRows}</tbody></table></div></td>`;
+        tbody.appendChild(dropTr);
+      }
+    });
+
+    updateDirectorySortHeaders();
+  }
+
+  function updateDirectorySortHeaders() {
+    const mapping = { client: 'sortClient', vacancies: 'sortVacancies', status: 'sortStatus', lastPosted: 'sortDate' };
+    Object.entries(mapping).forEach(([col, id]) => {
+      const th = $('#' + id); const icon = th.querySelector('.sort-icon');
+      if (col === currentSortColumn) { th.classList.add('active-sort'); icon.textContent = sortDirections[col] === 'asc' ? '▲' : '▼'; }
+      else { th.classList.remove('active-sort'); }
+    });
+  }
+
+  /* Directory Sort Attachments */
+  $('#sortClient').addEventListener('click', () => { currentSortColumn = 'client'; sortDirections.client = sortDirections.client === 'asc' ? 'desc' : 'asc'; applyDirectoryFilterAndSort(); });
+  $('#sortVacancies').addEventListener('click', () => { currentSortColumn = 'vacancies'; sortDirections.vacancies = sortDirections.vacancies === 'desc' ? 'asc' : 'desc'; applyDirectoryFilterAndSort(); });
+  $('#sortStatus').addEventListener('click', () => { currentSortColumn = 'status'; sortDirections.status = sortDirections.status === 'desc' ? 'asc' : 'desc'; applyDirectoryFilterAndSort(); });
+  $('#sortDate').addEventListener('click', () => { currentSortColumn = 'lastPosted'; sortDirections.lastPosted = sortDirections.lastPosted === 'desc' ? 'asc' : 'desc'; applyDirectoryFilterAndSort(); });
+  $('#directorySearchInput').addEventListener('input', applyDirectoryFilterAndSort);
+
+
+  /* ===================== MODAL INTERACTIVITY ===================== */
+  const jobModal = $('#jobModal');
+  const jobsListModal = $('#jobsListModal');
+  const modalModeSwitch = $('#modalModeSwitch');
+  const modalContent = $('#modalContent');
+  const modalRecent = $('#modalRecent');
+
+  function openModal(el){
+    if (!el) return; el.classList.add('show');
+    const escHandler = e => { if (e.key === 'Escape') { el.classList.remove('show'); document.removeEventListener('keydown', escHandler); } };
+    document.addEventListener('keydown', escHandler);
+    el.addEventListener('click', function overlayClose(ev){ if (ev.target === el) { el.classList.remove('show'); el.removeEventListener('click', overlayClose); document.removeEventListener('keydown', escHandler); } });
+  }
+
+  $('#jobsListClose').addEventListener('click', () => jobsListModal.classList.remove('show'));
+  $('#jobModalClose').addEventListener('click', () => jobModal.classList.remove('show'));
+  $('#modalCloseBtn')?.addEventListener('click', () => jobModal.classList.remove('show'));
+
+  modalModeSwitch.addEventListener('change', (e) => {
+    modalMode = e.target.checked ? 'pending' : 'new';
+    if (modalMode === 'new') { modalContent.classList.remove('mode-pending'); modalContent.classList.add('mode-new'); }
+    else { modalContent.classList.remove('mode-new'); modalContent.classList.add('mode-pending'); }
   });
-});
 
-/* ===================== See More & Debounce & Clipboard Exports ===================== */
-$('#activeMoreBtn').addEventListener('click', () => { activeLimit += 10; renderActive(activeLimit, currentList); });
-$('#pendingMoreBtn').addEventListener('click', () => { pendingLimit += 10; renderPending(pendingLimit, currentList); });
-$('#searchInput').addEventListener('input', (function(){ let t; return function(){ clearTimeout(t); t = setTimeout(triggerSearch, 220); }; })());
+  $('#addJobBtn').addEventListener('click', () => {
+    modalModeSwitch.checked = false; modalContent.className = 'modal-content mode-new'; modalMode = 'new';
+    openModal(jobModal); clearModalFields(); $('#mDate').value = isoDate(new Date()); populateModalSuggestions(); renderModalRecent();
+  });
+  $('#addPendingBtn').addEventListener('click', () => {
+    modalModeSwitch.checked = true; modalContent.className = 'modal-content mode-pending'; modalMode = 'pending';
+    openModal(jobModal); clearModalFields(); $('#mDate').value = isoDate(new Date()); populateModalSuggestions(); renderModalRecent();
+  });
 
-function openExportModal(){ const el = $('#exportModal'); el.classList.remove('hidden'); el.classList.add('show'); }
-function closeExportModal(){ $('#exportModal').classList.remove('show'); }
-document.addEventListener('change', e=>{ if(e.target.id==='exportRange') $('#customDates').style.display = e.target.value==='custom'?'block':'none'; });
+  function clearModalFields(){ 
+    $('#mId').value = ''; $('#mTitle').value = ''; $('#mClient').value = ''; $('#mCli').value = ''; 
+    $('#mSource').value = ''; $('#mDate').value = ''; $('#mExp').value = ''; $('#mNotes').value = ''; 
+  }
 
-function runClipboardExport(){
-  const range = $('#exportRange').value; const startInput = $('#exportStart').value; const endInput = $('#exportEnd').value;
-  const now = new Date(); let startDate, endDate;
+  function populateModalSuggestions(){
+    const clients = Array.from(new Set(cache.map(j => j.client || '').filter(Boolean))).slice(0, 200);
+    const clis = Array.from(new Set(cache.map(j => j.clientNumber || j.cli || j.clientNum || '').filter(Boolean))).slice(0, 200);
+    const srcs = Array.from(new Set(cache.map(j => j.source || '').filter(Boolean))).slice(0, 200);
+    $('#mClientList').innerHTML = ''; $('#mCliList').innerHTML = ''; $('#mSourceList').innerHTML = '';
+    clients.forEach(c => { const o = document.createElement('option'); o.value = c; $('#mClientList').appendChild(o); });
+    clis.forEach(c => { const o = document.createElement('option'); o.value = c; $('#mCliList').appendChild(o); });
+    srcs.forEach(s => { const o = document.createElement('option'); o.value = s; $('#mSourceList').appendChild(o); });
+  }
 
-  if(range === 'today'){ startDate = isoDate(now); endDate = isoDate(now); }
-  else if(range === 'yesterday'){ const y = new Date(now); y.setDate(now.getDate() - 1); startDate = isoDate(y); endDate = isoDate(y); }
-  else if(range === 'week'){ const week = getWeekRange(now); startDate = isoDate(week.start); endDate = isoDate(week.end); }
-  else if(range === 'custom'){ if(!startInput || !endInput){ showToast("Select date bounds", true); return; } startDate = startInput; endDate = endInput; }
+  function syncClientData(sourceInput, targetInput, sourceKey, targetKey){
+    const val = sourceInput.value.trim(); if (!val) return;
+    const match = cache.find(j => (j[sourceKey] || '').toLowerCase() === val.toLowerCase());
+    if (match && match[targetKey]) { targetInput.value = match[targetKey]; renderModalRecent(); }
+  }
+  $('#mClient').addEventListener('input', () => { renderModalRecent(); syncClientData($('#mClient'), $('#mCli'), 'client', 'clientNumber'); });
+  $('#mCli').addEventListener('input', () => { renderModalRecent(); syncClientData($('#mCli'), $('#mClient'), 'clientNumber', 'client'); });
 
-  const filtered = cache.filter(j => j.datePosted && j.datePosted >= startDate && j.datePosted <= endDate).sort((a,b)=> new Date(a.datePosted) - new Date(b.datePosted));
-  if(!filtered.length){ showToast("No targets found"); return; }
+  function renderModalRecent(){
+    const clientName = ($('#mClient').value || '').trim().toLowerCase();
+    const clientNum = ($('#mCli').value || '').trim();
+    if ((!clientName || clientName.length < 2) && (!clientNum || clientNum.length < 2)) { 
+      modalRecent.innerHTML = '<div class="small-muted" style="padding:8px">Enter client name or CLI to see recent jobs</div>'; return; 
+    }
+    let list = cache.slice();
+    if (clientName) list = list.filter(j => (j.client || '').toLowerCase().includes(clientName));
+    if (clientNum) list = list.filter(j => (j.clientNumber || j.cli || j.clientNum || '').toString().includes(clientNum));
+    list.sort((a, b) => b._sortTime - a._sortTime);
+    
+    modalRecent.innerHTML = '';
+    if (!list.length) { modalRecent.innerHTML = '<div class="small-muted" style="padding:8px">No recent jobs for this client</div>'; return; }
+    list.slice(0, 30).forEach(j => {
+      const status = isActiveJob(j) ? 'Active' : 'Expired';
+      const statusColor = status === 'Expired' ? 'var(--danger)' : 'var(--primary)';
+      
+      const div = document.createElement('div'); 
+      div.style.padding = '8px'; div.style.borderBottom = '1px solid #f1f5f9';
+      div.innerHTML = `
+        <div style="font-weight:700">${escapeHtml(j.title || '')}</div>
+        <div style="font-weight:700; color:${statusColor}; margin-top:4px;">Expires: ${j.expiration ? fmt(j.expiration) : 'No Expiration'} (${status})</div>
+        <div class="small-muted" style="margin-top:2px;">Posted: ${fmt(j.datePosted)}</div>
+        <div style="margin-top:6px"><button data-load="${j.id}" class="action-pill">Edit</button></div>
+      `;
+      modalRecent.appendChild(div);
+    });
+  }
 
-  const jobsByDate = {};
-  filtered.forEach(j => { if(!jobsByDate[j.datePosted]) jobsByDate[j.datePosted] = []; jobsByDate[j.datePosted].push(j); });
+  modalRecent.addEventListener('click', async (e) => {
+    const id = e.target.dataset.load; if (!id) return;
+    try {
+      let docSnap = await getDoc(doc(db, 'jobs', id)); let data = docSnap.exists() ? docSnap.data() : null;
+      if (!data) { const pd = await getDoc(doc(db, 'pendingJobs', id)); if (pd.exists()) data = pd.data(); }
+      if (!data) return;
+      $('#mId').value = id; $('#mTitle').value = data.title || ''; $('#mClient').value = data.client || '';
+      $('#mCli').value = data.clientNumber || ''; $('#mSource').value = data.source || '';
+      $('#mDate').value = isoDate(data.datePosted || new Date()); $('#mExp').value = isoDate(data.expiration || ''); $('#mNotes').value = data.notes || '';
+      renderModalRecent(); 
+    } catch(err){}
+  });
 
-  let output = "";
-  Object.keys(jobsByDate).sort().forEach(dateKey => {
-     output += `${new Date(dateKey + 'T12:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric' })}\n\n`;
-     const jobsByClient = {};
-     jobsByDate[dateKey].forEach(j => {
+  $('#modalSaveBtn').addEventListener('click', async () => {
+    const payload = {
+      title: ($('#mTitle').value || '').trim(), client: ($('#mClient').value || '').trim(), clientNumber: ($('#mCli').value || '').trim(),
+      source: ($('#mSource').value || '').trim(), datePosted: $('#mDate').value || isoDate(new Date()), expiration: $('#mExp').value || '',
+      notes: ($('#mNotes').value || '').trim(), updatedAt: serverTimestamp()
+    };
+    if (!payload.title) { showToast('Title required', true); return; }
+    if (!$('#mId').value) payload.createdAt = serverTimestamp();
+    
+    const id = $('#mId').value; const isPendingMode = modalMode === 'pending';
+    const targetCol = isPendingMode ? pendingCol : jobsCol;
+
+    try {
+      if (id) {
+        const original = cache.find(j => j.id === id);
+        if (original && (original._pending !== isPendingMode)) {
+          await deleteDoc(doc(db, original._pending ? 'pendingJobs' : 'jobs', id));
+          await addDoc(targetCol, payload);
+        } else { 
+          await setDoc(doc(db, isPendingMode ? 'pendingJobs' : 'jobs', id), payload, { merge: true }); 
+        }
+        showToast('Updated successfully');
+      } else { 
+        await addDoc(targetCol, payload); 
+        showToast('Saved successfully'); 
+      }
+      $('#mId').value = ''; $('#mTitle').value = ''; $('#mTitle').focus();
+    } catch(e) { showToast('Save failed', true); }
+  });
+
+  /* Dashboard action routing */
+  document.addEventListener('click', async (e) => {
+    const editId = e.target.dataset.edit; const delId = e.target.dataset.delete; const simId = e.target.dataset.similar;
+    if (editId) {
+      const entry = cache.find(x => x.id === editId);
+      if (entry) {
+        modalModeSwitch.checked = entry._pending;
+        modalContent.className = 'modal-content ' + (entry._pending ? 'mode-pending' : 'mode-new');
+        modalMode = entry._pending ? 'pending' : 'new';
+        openModal(jobModal);
+        $('#mId').value = editId; $('#mTitle').value = entry.title || ''; $('#mClient').value = entry.client || ''; $('#mCli').value = entry.clientNumber || '';
+        $('#mSource').value = entry.source || ''; $('#mDate').value = isoDate(entry.datePosted); $('#mExp').value = isoDate(entry.expiration); $('#mNotes').value = entry.notes || '';
+        renderModalRecent();
+      }
+    } else if (delId) {
+      if (!confirm('Delete this item?')) return;
+      try { 
+        try { await deleteDoc(doc(db, 'jobs', delId)); } catch(err) { await deleteDoc(doc(db, 'pendingJobs', delId)); }
+        showToast('Deleted'); 
+      } catch(e) { showToast('Delete failed', true); }
+    } else if (simId) {
+      const entry = cache.find(x => x.id === simId);
+      if (entry) {
+        modalModeSwitch.checked = false; modalContent.className = 'modal-content mode-new'; modalMode = 'new'; openModal(jobModal);
+        $('#mId').value = ''; $('#mTitle').value = ''; $('#mClient').value = entry.client || ''; $('#mCli').value = entry.clientNumber || '';
+        $('#mSource').value = entry.source || ''; $('#mDate').value = isoDate(new Date()); $('#mExp').value = isoDate(entry.expiration); $('#mNotes').value = entry.notes || '';
+        renderModalRecent();
+      }
+    }
+  });
+
+  /* Stats modal popup */
+  $$('#overviewRow .stat-box, #expirationRow .stat-box').forEach(box => {
+    box.addEventListener('click', () => {
+      const key = box.dataset.key; if (!key) return;
+      const now = new Date(); const tStr = isoDate(now);
+      const {start: wStart, end: wEnd} = getWeekRange(now);
+      const lwDate = new Date(now); lwDate.setDate(now.getDate() - 7); const {start: lwStart, end: lwEnd} = getWeekRange(lwDate);
+      let filtered = [];
+      
+      if (key === 'activeJobs') filtered = cache.filter(j => isActiveJob(j));
+      else if (key === 'pendingVacancies') filtered = cache.filter(j => j._pending);
+      else if (key === 'totalJobs') filtered = cache.slice();
+      else if (key === 'jobsPostedToday') filtered = cache.filter(j => j.datePosted === tStr);
+      else if (key === 'jobsPostedYesterday') { const y = new Date(now); y.setDate(y.getDate() - 1); filtered = cache.filter(j => j.datePosted === isoDate(y)); }
+      else if (key === 'jobsThisWeek') filtered = cache.filter(j => { const d = new Date(j.datePosted || 0); return d >= wStart && d <= wEnd; });
+      else if (key === 'jobsThisMonth') filtered = cache.filter(j => { const d = new Date(j.datePosted || 0); return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear(); });
+      else if (key === 'jobsThisYear') filtered = cache.filter(j => { const d = new Date(j.datePosted || 0); return d.getFullYear() === now.getFullYear(); });
+      else if (key === 'cosSaturday') { const upcomingSaturday = getUpcomingSaturday(); filtered = cache.filter(j => !j._pending && isActiveJob(j) && (!j.expiration || new Date(j.expiration + 'T23:59:59') >= upcomingSaturday)); }
+      else if (key === 'expLastWeek') filtered = cache.filter(j => j.expiration && new Date(j.expiration + 'T00:00:00') >= lwStart && new Date(j.expiration + 'T00:00:00') <= lwEnd);
+      else if (key === 'expYesterday') { const y = new Date(now); y.setDate(y.getDate() - 1); filtered = cache.filter(j => j.expiration === isoDate(y)); }
+      else if (key === 'expToday') filtered = cache.filter(j => j.expiration === tStr);
+      else if (key === 'expThisWeek') filtered = cache.filter(j => j.expiration && new Date(j.expiration + 'T00:00:00') >= wStart && new Date(j.expiration + 'T00:00:00') <= wEnd);
+      
+      let offset = Math.min(10, filtered.length);
+      function renderOffset() {
+        const jobsListBody = $('#jobsListBody');
+        jobsListBody.innerHTML = ''; filtered.slice(0, offset).forEach(j => jobsListBody.appendChild(createRow(j)));
+        $('#jobsListTitle').textContent = (box.querySelector('h4')?.textContent || 'Jobs') + ' (' + filtered.length + ')';
+        $('#jobsListShowMore').style.display = offset < filtered.length ? 'inline-block' : 'none';
+      }
+      $('#jobsListShowMore').onclick = () => { offset = Math.min(offset + 10, filtered.length); renderOffset(); };
+      openModal(jobsListModal); renderOffset();
+    });
+  });
+
+  /* ===================== SEE MORE & DEBOUNCE ===================== */
+  $('#activeMoreBtn').addEventListener('click', () => { activeLimit += 10; renderActive(activeLimit, currentList); });
+  $('#pendingMoreBtn').addEventListener('click', () => { pendingLimit += 10; renderPending(pendingLimit, currentList); });
+  $('#searchInput').addEventListener('input', (function(){ let t; return function(){ clearTimeout(t); t = setTimeout(triggerSearch, 220); }; })());
+
+  /* ===================== EXPORT ===================== */
+  function openExportModal() { const el = $('#exportModal'); el.classList.remove('hidden'); el.classList.add('show'); }
+  function closeExportModal() { $('#exportModal').classList.remove('show'); }
+  window.openExportModal = openExportModal;
+  window.closeExportModal = closeExportModal;
+
+  $('#exportBtn').addEventListener('click', openExportModal);
+  $('#exportCloseBtn').addEventListener('click', closeExportModal);
+  $('#exportCopyBtn').addEventListener('click', runClipboardExport);
+
+  document.addEventListener('change', e => { if (e.target.id === 'exportRange') $('#customDates').style.display = e.target.value === 'custom' ? 'block' : 'none'; });
+
+  function runClipboardExport() {
+    const range = $('#exportRange').value; const startInput = $('#exportStart').value; const endInput = $('#exportEnd').value;
+    const now = new Date(); let startDate, endDate;
+
+    if (range === 'today') { startDate = isoDate(now); endDate = isoDate(now); }
+    else if (range === 'yesterday') { const y = new Date(now); y.setDate(now.getDate() - 1); startDate = isoDate(y); endDate = isoDate(y); }
+    else if (range === 'week') { const week = getWeekRange(now); startDate = isoDate(week.start); endDate = isoDate(week.end); }
+    else if (range === 'custom') { if (!startInput || !endInput) { showToast("Select date bounds", true); return; } startDate = startInput; endDate = endInput; }
+
+    const filtered = cache.filter(j => j.datePosted && j.datePosted >= startDate && j.datePosted <= endDate).sort((a,b) => new Date(a.datePosted) - new Date(b.datePosted));
+    if (!filtered.length) { showToast("No targets found"); return; }
+
+    const jobsByDate = {};
+    filtered.forEach(j => { if (!jobsByDate[j.datePosted]) jobsByDate[j.datePosted] = []; jobsByDate[j.datePosted].push(j); });
+
+    let output = "";
+    Object.keys(jobsByDate).sort().forEach(dateKey => {
+      output += `${new Date(dateKey + 'T12:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric' })}\n\n`;
+      const jobsByClient = {};
+      jobsByDate[dateKey].forEach(j => {
         const k = `${j.client || 'Unknown Client'} ${j.clientNumber ? `(${j.clientNumber})` : ''}`.trim();
-        if(!jobsByClient[k]) jobsByClient[k] = []; jobsByClient[k].push(j);
-     });
+        if (!jobsByClient[k]) jobsByClient[k] = []; jobsByClient[k].push(j);
+      });
 
-     Object.keys(jobsByClient).forEach(clientHeader => {
+      Object.keys(jobsByClient).forEach(clientHeader => {
         output += `--- ${clientHeader} ---\n`;
         const signatureGroups = {};
         jobsByClient[clientHeader].forEach(j => {
-            const sig = (j.source || '') + '|||' + (j.expiration || '');
-            if(!signatureGroups[sig]) signatureGroups[sig] = []; signatureGroups[sig].push(j);
+          const sig = (j.source || '') + '|||' + (j.expiration || '');
+          if (!signatureGroups[sig]) signatureGroups[sig] = []; signatureGroups[sig].push(j);
         });
 
         Object.entries(signatureGroups).forEach(([sig, jobs]) => {
-            const [src, exp] = sig.split('|||');
-            if(src) output += `${src}\n`;
-            jobs.forEach(job => { output += `${job.title || 'Untitled Job'}\n`; });
-            if(exp) output += `Expires: ${fmt(exp)}\n`;
-            output += '\n';
+          const [src, exp] = sig.split('|||');
+          if (src) output += `${src}\n`;
+          jobs.forEach(job => { output += `${job.title || 'Untitled Job'}\n`; });
+          if (exp) output += `Expires: ${fmt(exp)}\n`;
+          output += '\n';
         });
-     });
-     output += '\n';
+      });
+      output += '\n';
+    });
+
+    navigator.clipboard.writeText(output).then(() => { showToast("Copied to clipboard"); closeExportModal(); }).catch(() => { showToast("Copy failed", true); });
+  }
+
+  /* ===================== THEME + INITIALIZATION (replaces DOMContentLoaded) ===================== */
+  try {
+    $('#mDate').value = isoDate(new Date());
+    if (localStorage.getItem('vac_tracker_dark_mode') === 'on') {
+      document.body.classList.add('dark');
+      $('#darkBtn').textContent = '☀️';
+    }
+  } catch (e) {
+    console.warn('Init UI setup warning:', e);
+  }
+
+  $('#darkBtn').addEventListener('click', () => {
+    const d = document.body.classList.toggle('dark');
+    localStorage.setItem('vac_tracker_dark_mode', d ? 'on' : 'off');
+    $('#darkBtn').textContent = d ? '☀️' : '🌙';
   });
 
-  navigator.clipboard.writeText(output).then(()=>{ showToast("Copied to clipboard"); closeExportModal(); }).catch(()=>{ showToast("Copy failed", true); });
-}
+  /* ===================== EXPOSE GLOBALS ===================== */
+  window.switchTab = switchTab;
 
-/* Theme Engine Configuration */
-darkBtn.addEventListener('click', ()=>{ const d=document.body.classList.toggle('dark'); localStorage.setItem('vac_tracker_dark_mode', d?'on':'off'); darkBtn.textContent=d?'☀️':'🌙'; });
-document.addEventListener('DOMContentLoaded', async ()=>{ mDate.value=isoDate(new Date()); if(localStorage.getItem('vac_tracker_dark_mode')==='on'){ document.body.classList.add('dark'); darkBtn.textContent='☀️'; } await startFirebaseSafe(); });
+})();
 </script>
 </body>
 </html>
